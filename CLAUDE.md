@@ -23,6 +23,7 @@ task-tracker/
 │   ├── app.jsx               # Root component, screen router
 │   ├── store.js              # CSV CRUD (load, save, add, update, delete)
 │   ├── parser.js             # Lenient paste-format parser
+│   ├── utils.js              # Shared utilities (parseTime, parseDate, groupByDate, etc.)
 │   └── components/
 │       ├── MainMenu.jsx      # Main menu (Add, Paste, Summary, Edit/Delete, Exit)
 │       ├── AddTask.jsx       # Sequential single-task form
@@ -34,7 +35,8 @@ task-tracker/
 ├── tests/
 │   ├── patterns.test.js      # Unit tests for each pattern group
 │   ├── parser.test.js        # Integration tests for parsePastedText
-│   └── store.test.js         # CSV CRUD tests
+│   ├── store.test.js         # CSV CRUD tests
+│   └── utils.test.js         # Utility function tests (parseTime, parseDate, groupByDate, etc.)
 ├── package.json
 └── .gitignore
 ```
@@ -79,6 +81,11 @@ Tests use Node.js built-in `node:test` + `node:assert/strict`, run via `tsx`.
 - `patterns.test.js` — tests each pattern array in isolation (DATE, TYPE, NUMBER, TIME)
 - `parser.test.js` — tests `parsePastedText` end-to-end (full format, partial format, mixed blocks, date handling)
 - `store.test.js` — tests CSV CRUD in a temp directory
+- `utils.test.js` — tests parseTime, parseDate, getWeekBounds, formatDateShort, groupByDate
+
+## Rules
+
+- All new code must be covered with tests. Run `npm test` before committing/pushing.
 
 ## Key Design Decisions
 
