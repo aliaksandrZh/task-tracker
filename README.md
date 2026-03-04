@@ -1,5 +1,7 @@
 # Task Tracker
 
+[![Tests](https://github.com/aliaksandrZh/task-tracker/actions/workflows/test.yml/badge.svg)](https://github.com/aliaksandrZh/task-tracker/actions/workflows/test.yml)
+
 A terminal UI for tracking daily work tasks (bugs, tasks) with time spent. Replaces plain-text tracking with a proper interface supporting paste, summaries, editing, and a built-in timer.
 
 ## Quick Start
