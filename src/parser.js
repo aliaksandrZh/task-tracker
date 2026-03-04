@@ -3,6 +3,8 @@ export const DATE_PATTERNS = [
   /^(\d{4}-\d{2}-\d{2})$/,
 ];
 
+export const PREFIX_PATTERN = /^Pull\s+Request\s+\d+\s*:\s*/i;
+
 export const TYPE_PATTERNS = [
   { re: /^(Bug|Task)\b/i, extract: (m) => m[1] },
 ];
@@ -14,6 +16,7 @@ export const NUMBER_PATTERNS = [
 export const TIME_PATTERNS = [
   { re: /\s+(\d+(?:\.\d+)?h\s*\d+(?:\.\d+)?m)$/, extract: (m) => m[1] },
   { re: /\s+(\d+(?:\.\d+)?[hm])$/, extract: (m) => m[1] },
+  { re: /\s+(\d+(?:\.\d+)?)$/, extract: (m) => `${m[1]}h` },
 ];
 
 function normalizeType(type) {
@@ -38,6 +41,14 @@ export function parseLine(line) {
   let type = '';
   let number = '';
   let timeSpent = '';
+  let comments = '';
+
+  // Strip "Pull Request XXXXX:" prefix, save to comments
+  const prMatch = remaining.match(PREFIX_PATTERN);
+  if (prMatch) {
+    comments = prMatch[0].trim().replace(/:\s*$/, '');
+    remaining = remaining.slice(prMatch[0].length).trim();
+  }
 
   const typeResult = tryPatterns(TYPE_PATTERNS, remaining);
   if (typeResult) {
@@ -64,7 +75,7 @@ export function parseLine(line) {
 
   const name = remaining;
 
-  return { type, number, name, timeSpent };
+  return { type, number, name, timeSpent, comments };
 }
 
 export function parsePastedText(text) {
@@ -79,7 +90,7 @@ export function parsePastedText(text) {
       continue;
     }
 
-    const { type, number, name, timeSpent } = parseLine(line);
+    const { type, number, name, timeSpent, comments } = parseLine(line);
 
     const missing = [];
     if (!currentDate) missing.push('date');
@@ -94,7 +105,7 @@ export function parsePastedText(text) {
       number,
       name,
       timeSpent,
-      comments: '',
+      comments,
       missing,
     });
   }

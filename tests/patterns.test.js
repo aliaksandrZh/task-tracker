@@ -121,4 +121,14 @@ describe('TIME_PATTERNS', () => {
   it('does not match time embedded in name', () => {
     assert.equal(tryPatterns(TIME_PATTERNS, 'fix 2h delay issue'), null);
   });
+
+  it('matches bare number as hours', () => {
+    const r = tryPatterns(TIME_PATTERNS, 'some name 1.5');
+    assert.equal(r.extract, '1.5h');
+  });
+
+  it('matches bare integer as hours', () => {
+    const r = tryPatterns(TIME_PATTERNS, 'some name 2');
+    assert.equal(r.extract, '2h');
+  });
 });

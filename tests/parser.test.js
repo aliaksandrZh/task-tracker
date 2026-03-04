@@ -91,4 +91,18 @@ Bug 100: Fix crash 2h`;
     const [t] = parsePastedText('3/3/2026\nTask 1: [Tag: Sub] Name (critical)');
     assert.equal(t.name, '[Tag: Sub] Name (critical)');
   });
+
+  it('strips Pull Request prefix and saves to comments', () => {
+    const [t] = parsePastedText('Pull Request 19082: Bug 31601: [Part Activity] Date Filter - the date pickers are disabled after selection of dates 1.5');
+    assert.equal(t.type, 'Bug');
+    assert.equal(t.number, '31601');
+    assert.equal(t.name, '[Part Activity] Date Filter - the date pickers are disabled after selection of dates');
+    assert.equal(t.timeSpent, '1.5h');
+    assert.equal(t.comments, 'Pull Request 19082');
+  });
+
+  it('parses bare number as hours', () => {
+    const [t] = parsePastedText('Bug 123: Fix login 2');
+    assert.equal(t.timeSpent, '2h');
+  });
 });
