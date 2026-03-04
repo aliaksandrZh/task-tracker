@@ -14,7 +14,7 @@ A terminal UI for tracking daily work tasks (bugs, tasks) with time spent. Repla
 
 ```bash
 git clone https://github.com/aliaksandrZh/worklog.git
-cd task-tracker
+cd worklog
 chmod +x install.sh
 ./install.sh
 ```
@@ -23,7 +23,7 @@ chmod +x install.sh
 
 ```cmd
 git clone https://github.com/aliaksandrZh/worklog.git
-cd task-tracker
+cd worklog
 install.bat
 ```
 
@@ -50,7 +50,7 @@ tt week                         # print current week's tasks
 
 ### Timer
 
-Track time on the current task:
+Track time on the current task — works from both CLI and TUI:
 
 ```bash
 tt start Bug 123: Fix login     # start timer
@@ -58,14 +58,20 @@ tt status                       # show what's being timed
 tt stop                         # stop timer, save task with elapsed time
 ```
 
+In the TUI, the running timer is displayed in the header with elapsed time, and you can start/stop timers via the menu (`t` shortcut).
+
 ### TUI Menu
 
-The interactive TUI provides:
+The interactive TUI provides keyboard shortcuts for quick navigation:
 
-- **Add Task** — sequential form for a single task
-- **Paste Tasks** — paste multiple lines, parser extracts fields automatically and prompts for anything missing
-- **View Summary** — daily/weekly summaries with navigation
-- **Edit/Delete** — select a task to edit or remove
+- **(a) Add Task** — sequential form with back-navigation (Backspace on empty field)
+- **(p) Paste Tasks** — paste a line, parser extracts fields and prompts for anything missing
+- **(s) View Summary** — daily/weekly summaries with date navigation (←/→ arrows)
+- **(e) Edit/Delete** — select a task to edit or remove
+- **(t) Start/Stop Timer** — paste a task line to start timing
+- **(q) Exit**
+
+Optional fields are marked with `?` in forms. The app checks for updates on startup.
 
 ## Data Storage
 
@@ -73,7 +79,7 @@ Tasks are stored in `tasks.csv` (auto-created on first run) in the current direc
 
 | Column    | Description                    |
 |-----------|--------------------------------|
-| date      | Date of the task (YYYY-MM-DD)  |
+| date      | Date of the task (M/D/YYYY)    |
 | type      | Bug, Task, etc.                |
 | number    | Task/ticket number             |
 | name      | Short description              |
@@ -85,17 +91,17 @@ Tasks are stored in `tasks.csv` (auto-created on first run) in the current direc
 The parser is lenient — it extracts what it can and prompts for the rest. Supported formats:
 
 ```
-3/4/2026
 Bug 12345: Fix login page redirect 1h 30m
 Task 67890: Update API docs 45m
+Pull Request 19082: Bug 31601: Fix date filter 1.5
 ```
 
 Recognized patterns:
-- **Date** — `M/D/YYYY`, `YYYY-MM-DD` (defaults to today if omitted)
-- **Type** — `Bug`, `Task` at start of line
+- **Type** — `Bug`, `Task` at start of line (color-coded: Bug in red, Task in yellow)
 - **Number** — `123`, `#123`, `123:`
-- **Time** — `1h`, `30m`, `1h 30m` at end of line
+- **Time** — `1h`, `30m`, `1h 30m`, or bare number like `1.5` (treated as hours)
 - **Name** — whatever remains after extracting other fields
+- **Pull Request prefix** — `Pull Request XXXXX:` is stripped and saved to comments
 
 ## Development
 
@@ -104,7 +110,7 @@ npm start       # run the app (same as tt)
 npm test        # run all tests
 ```
 
-Tests use Node.js built-in `node:test` and require no extra dependencies.
+Tests use Node.js built-in `node:test` and require no extra dependencies. CI runs on Node 18, 20, and 22 via GitHub Actions.
 
 ## Tech Stack
 
