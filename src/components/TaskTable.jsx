@@ -11,7 +11,7 @@ function getTypeColor(type) {
   return TYPE_COLORS[(type || '').toLowerCase()] || 'white';
 }
 
-export default function TaskTable({ tasks, showIndex = false }) {
+export default function TaskTable({ tasks, showIndex = false, sortBy = null, sortDir = 'asc' }) {
   const { stdout } = useStdout();
   const width = stdout?.columns || 80;
 
@@ -28,13 +28,16 @@ export default function TaskTable({ tasks, showIndex = false }) {
 
   const join = (...parts) => parts.join(GAP);
 
+  const indicator = sortDir === 'asc' ? '▲' : '▼';
+  const h = (label, col, w) => pad(sortBy === col ? `${label}${indicator}` : label, w);
+
   const headerText = join(
     ...(showIndex ? [pad('#', 4)] : []),
-    pad('Date', FIXED.date),
-    pad('Type', FIXED.type),
-    pad('Number', FIXED.number),
-    pad('Name', nameWidth),
-    pad('Time', FIXED.timeSpent),
+    h('Date', 'date', FIXED.date),
+    h('Type', 'type', FIXED.type),
+    h('Number', 'number', FIXED.number),
+    h('Name', 'name', nameWidth),
+    h('Time', 'timeSpent', FIXED.timeSpent),
     pad('Comments', commentsWidth),
   );
 

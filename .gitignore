@@ -3,3 +3,4 @@ tasks.csv
 .test-tmp/
 .DS_Store
 .timer.json
+.prefs.json

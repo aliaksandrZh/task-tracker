@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseTime, parseDate, getWeekBounds, formatDateShort, groupByDate, filterWeekByOffset } from '../src/utils.js';
+import { parseTime, parseDate, getWeekBounds, formatDateShort, groupByDate, filterWeekByOffset, sortTasks } from '../src/utils.js';
 
 describe('parseTime', () => {
   it('returns 0 for empty string', () => {
@@ -125,6 +125,71 @@ describe('groupByDate', () => {
 
   it('returns empty array for no tasks', () => {
     assert.deepEqual(groupByDate([]), []);
+  });
+});
+
+describe('sortTasks', () => {
+  const tasks = [
+    { date: '3/3/2026', type: 'Task', number: '200', name: 'Beta', timeSpent: '2h', comments: '' },
+    { date: '3/1/2026', type: 'Bug', number: '100', name: 'Alpha', timeSpent: '30m', comments: '' },
+    { date: '3/2/2026', type: 'Task', number: '150', name: 'Gamma', timeSpent: '1h', comments: '' },
+  ];
+
+  it('returns tasks unchanged when sortBy is null', () => {
+    const result = sortTasks(tasks, null, 'asc');
+    assert.deepEqual(result, tasks);
+  });
+
+  it('sorts by date ascending', () => {
+    const result = sortTasks(tasks, 'date', 'asc');
+    assert.equal(result[0].date, '3/1/2026');
+    assert.equal(result[1].date, '3/2/2026');
+    assert.equal(result[2].date, '3/3/2026');
+  });
+
+  it('sorts by date descending', () => {
+    const result = sortTasks(tasks, 'date', 'desc');
+    assert.equal(result[0].date, '3/3/2026');
+    assert.equal(result[2].date, '3/1/2026');
+  });
+
+  it('sorts by type alphabetically', () => {
+    const result = sortTasks(tasks, 'type', 'asc');
+    assert.equal(result[0].type, 'Bug');
+    assert.equal(result[1].type, 'Task');
+  });
+
+  it('sorts by number as string', () => {
+    const result = sortTasks(tasks, 'number', 'asc');
+    assert.equal(result[0].number, '100');
+    assert.equal(result[1].number, '150');
+    assert.equal(result[2].number, '200');
+  });
+
+  it('sorts by name alphabetically', () => {
+    const result = sortTasks(tasks, 'name', 'asc');
+    assert.equal(result[0].name, 'Alpha');
+    assert.equal(result[1].name, 'Beta');
+    assert.equal(result[2].name, 'Gamma');
+  });
+
+  it('sorts by timeSpent numerically', () => {
+    const result = sortTasks(tasks, 'timeSpent', 'asc');
+    assert.equal(result[0].timeSpent, '30m');
+    assert.equal(result[1].timeSpent, '1h');
+    assert.equal(result[2].timeSpent, '2h');
+  });
+
+  it('sorts by timeSpent descending', () => {
+    const result = sortTasks(tasks, 'timeSpent', 'desc');
+    assert.equal(result[0].timeSpent, '2h');
+    assert.equal(result[2].timeSpent, '30m');
+  });
+
+  it('does not mutate the original array', () => {
+    const original = [...tasks];
+    sortTasks(tasks, 'name', 'asc');
+    assert.deepEqual(tasks, original);
   });
 });
 

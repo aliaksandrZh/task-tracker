@@ -43,6 +43,24 @@ export function groupByDate(tasks) {
   }));
 }
 
+export function sortTasks(tasks, sortBy, sortDir) {
+  if (!sortBy) return tasks;
+  const dir = sortDir === 'desc' ? -1 : 1;
+  return [...tasks].sort((a, b) => {
+    let cmp;
+    if (sortBy === 'date') {
+      const da = parseDate(a.date);
+      const db = parseDate(b.date);
+      cmp = (da || 0) - (db || 0);
+    } else if (sortBy === 'timeSpent') {
+      cmp = parseTime(a.timeSpent) - parseTime(b.timeSpent);
+    } else {
+      cmp = (a[sortBy] || '').localeCompare(b[sortBy] || '');
+    }
+    return cmp * dir;
+  });
+}
+
 export function filterCurrentWeek(tasks) {
   return filterWeekByOffset(tasks, 0);
 }
