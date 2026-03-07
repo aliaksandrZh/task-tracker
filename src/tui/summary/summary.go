@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/aliaksandrZh/worklog/src/internal/model"
 	"github.com/aliaksandrZh/worklog/src/internal/prefs"
@@ -43,10 +44,11 @@ type Model struct {
 	repo  store.TaskRepository
 	prefs *prefs.Store
 
-	allTasks    []model.Task
-	indexedAll  []model.IndexedTask
-	dailyGroups []timeutil.DateGroup
-	displayed   []model.IndexedTask
+	allTasks     []model.Task
+	indexedAll   []model.IndexedTask
+	dailyGroups  []timeutil.DateGroup
+	displayed    []model.IndexedTask
+	weeklyGroups []timeutil.DateGroup // day groups within current week
 
 	width int
 }
@@ -87,16 +89,22 @@ func (m *Model) reload() {
 }
 
 func (m *Model) refreshDisplayed() {
-	var raw []model.IndexedTask
 	if m.mode == "weekly" {
 		result := timeutil.FilterWeekByOffset(m.indexedAll, m.weekOffset)
-		raw = result.Tasks
+		m.weeklyGroups = timeutil.GroupByDate(result.Tasks)
+		// Build flat displayed list: each day group sorted independently
+		m.displayed = nil
+		for _, g := range m.weeklyGroups {
+			m.displayed = append(m.displayed, timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)...)
+		}
 	} else {
+		m.weeklyGroups = nil
+		var raw []model.IndexedTask
 		if m.dailyIdx < len(m.dailyGroups) {
 			raw = m.dailyGroups[m.dailyIdx].Tasks
 		}
+		m.displayed = timeutil.SortTasks(raw, m.sortBy, m.sortDir)
 	}
-	m.displayed = timeutil.SortTasks(raw, m.sortBy, m.sortDir)
 }
 
 func (m *Model) Init() tea.Cmd { return nil }
@@ -322,6 +330,37 @@ func (m *Model) View() string {
 		b.WriteString("\n")
 		b.WriteString(appTui.PromptStyle.Render(
 			fmt.Sprintf("%s — %.1fh total (%d tasks)", result.Label, result.Total, len(result.Tasks))) + "\n")
+
+		// Render day-by-day sections
+		rowOffset := 0
+		for _, g := range m.weeklyGroups {
+			b.WriteString("\n")
+			b.WriteString(appTui.PromptStyle.Render(
+				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))))
+			b.WriteString(" " + remainingLabel(g.Total, 8) + "\n")
+
+			sorted := timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)
+			cfg := table.Config{
+				Width:       w,
+				SortBy:      m.sortBy,
+				SortDir:     m.sortDir,
+				SelectedRow: -1,
+				SelectedCol: m.selectedCol,
+			}
+			if isEdit {
+				// Map global selectedRow to this group's local row
+				localRow := m.selectedRow - rowOffset
+				if localRow >= 0 && localRow < len(sorted) {
+					cfg.SelectedRow = localRow
+					if m.phase == phaseEditing {
+						cfg.EditingCell = true
+						cfg.EditView = m.editInput.View()
+					}
+				}
+			}
+			b.WriteString(table.Render(sorted, cfg) + "\n")
+			rowOffset += len(g.Tasks)
+		}
 	} else {
 		dateLabel := ""
 		if m.dailyIdx < len(m.dailyGroups) {
@@ -337,31 +376,45 @@ func (m *Model) View() string {
 		if m.dailyIdx < len(m.dailyGroups) {
 			g := m.dailyGroups[m.dailyIdx]
 			b.WriteString(appTui.PromptStyle.Render(
-				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))) + "\n")
+				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))))
+			b.WriteString(" " + remainingLabel(g.Total, 8) + "\n")
 		}
-	}
 
-	cfg := table.Config{
-		Width:       w,
-		SortBy:      m.sortBy,
-		SortDir:     m.sortDir,
-		SelectedRow: -1,
-		SelectedCol: m.selectedCol,
-	}
-	if isEdit {
-		cfg.SelectedRow = m.selectedRow
-		if m.phase == phaseEditing {
-			cfg.EditingCell = true
-			cfg.EditView = m.editInput.View()
+		cfg := table.Config{
+			Width:       w,
+			SortBy:      m.sortBy,
+			SortDir:     m.sortDir,
+			SelectedRow: -1,
+			SelectedCol: m.selectedCol,
 		}
+		if isEdit {
+			cfg.SelectedRow = m.selectedRow
+			if m.phase == phaseEditing {
+				cfg.EditingCell = true
+				cfg.EditView = m.editInput.View()
+			}
+		}
+		b.WriteString(table.Render(m.displayed, cfg) + "\n")
 	}
-	b.WriteString(table.Render(m.displayed, cfg) + "\n")
 
 	if m.phase == phaseConfirmDelete {
 		b.WriteString(appTui.DeleteConfirmStyle.Render("Delete this task? (y/n)") + "\n")
 	}
 
 	return b.String()
+}
+
+var (
+	overtimeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
+	remainingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
+)
+
+func remainingLabel(total float64, workday float64) string {
+	diff := total - workday
+	if diff >= 0 {
+		return overtimeStyle.Render(fmt.Sprintf("+%.1fh", diff))
+	}
+	return remainingStyle.Render(fmt.Sprintf("-%.1fh", -diff))
 }
 
 func getField(t model.Task, col string) string {
