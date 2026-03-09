@@ -238,6 +238,12 @@ func (m *Model) viewInput() string {
 	b.WriteString(appTui.HintStyle.Render("  Bug 123: Fix login 1h") + "\n")
 	b.WriteString(appTui.HintStyle.Render("  Task 456: Add feature 2h 30m") + "\n")
 	b.WriteString(appTui.HintStyle.Render("  123: Fix crash") + "\n\n")
+	// Set input width to terminal width so long text scrolls instead of overflowing
+	termW := m.width
+	if termW <= 0 {
+		termW = 80
+	}
+	m.input.Width = termW - 2
 	b.WriteString(m.input.View() + "\n")
 	return b.String()
 }
@@ -277,6 +283,19 @@ func (m *Model) viewFill() string {
 	if label == "" {
 		label = fieldName
 	}
+
+	// Limit textinput width so long values don't overflow
+	termW := m.width
+	if termW <= 0 {
+		termW = 80
+	}
+	labelWidth := len(label) + 2 // label + ": "
+	inputWidth := termW - labelWidth - 2
+	if inputWidth < 20 {
+		inputWidth = 20
+	}
+	m.input.Width = inputWidth
+
 	b.WriteString("\n")
 	b.WriteString(appTui.PromptStyle.Render(label+": ") + m.input.View() + "\n")
 	return b.String()

@@ -2,7 +2,9 @@ package summary
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -40,6 +42,7 @@ type Model struct {
 	selectedRow int
 	selectedCol int
 	editInput   textinput.Model
+	editInline  bool // true = edit in cell, false = edit below table
 
 	repo  store.TaskRepository
 	prefs *prefs.Store
@@ -56,6 +59,7 @@ type Model struct {
 // New creates a new summary model.
 func New(repo store.TaskRepository) *Model {
 	ti := textinput.New()
+	ti.Prompt = ""
 	ti.CharLimit = 200
 
 	p := prefs.New(".")
@@ -152,17 +156,23 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 		if m.mode == "daily" && m.dailyIdx < len(m.dailyGroups)-1 {
 			m.dailyIdx++
 			m.refreshDisplayed()
-		} else if m.mode == "weekly" && m.weekOffset > -52 {
-			m.weekOffset--
-			m.refreshDisplayed()
+		} else if m.mode == "weekly" {
+			next := m.adjacentWeekOffset(-1)
+			if next != m.weekOffset {
+				m.weekOffset = next
+				m.refreshDisplayed()
+			}
 		}
 	case "right":
 		if m.mode == "daily" && m.dailyIdx > 0 {
 			m.dailyIdx--
 			m.refreshDisplayed()
-		} else if m.mode == "weekly" && m.weekOffset < 0 {
-			m.weekOffset++
-			m.refreshDisplayed()
+		} else if m.mode == "weekly" {
+			next := m.adjacentWeekOffset(1)
+			if next != m.weekOffset {
+				m.weekOffset = next
+				m.refreshDisplayed()
+			}
 		}
 	case "d":
 		if m.mode != "daily" {
@@ -225,9 +235,25 @@ func (m *Model) updateSelect(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 		if m.selectedRow >= 0 && m.selectedRow < len(m.displayed) {
 			col := table.Columns[m.selectedCol]
 			val := getField(m.displayed[m.selectedRow].Task, col)
+			colW := table.ColWidth(col, m.width)
+
 			m.editInput.SetValue(val)
 			m.editInput.SetCursor(len(val))
-			m.editInput.Width = table.ColWidth(col, m.width)
+
+			// If value fits in column, edit inline; otherwise show modal
+			if len([]rune(val)) < colW-1 {
+				m.editInline = true
+				m.editInput.Width = colW
+			} else {
+				m.editInline = false
+				// Modal inner width: terminal - 4 (outer margin) - 6 (border + padding)
+				modalInner := m.width - 10
+				if modalInner < 30 {
+					modalInner = 30
+				}
+				m.editInput.Width = modalInner
+			}
+
 			m.editInput.Focus()
 			m.phase = phaseEditing
 			return m, textinput.Blink
@@ -294,12 +320,17 @@ func (m *Model) updateConfirmDelete(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd
 	return m, nil
 }
 
+func countLines(s string) int {
+	return strings.Count(s, "\n")
+}
+
 func (m *Model) View() string {
 	if len(m.allTasks) == 0 {
 		return "No tasks found. Press Escape to go back.\n"
 	}
 
 	var b strings.Builder
+	selectedLineY := -1 // track Y position of the selected row
 
 	isEdit := m.phase != phaseView
 	editLabel := ""
@@ -348,14 +379,15 @@ func (m *Model) View() string {
 				SelectedCol: m.selectedCol,
 			}
 			if isEdit {
-				// Map global selectedRow to this group's local row
 				localRow := m.selectedRow - rowOffset
 				if localRow >= 0 && localRow < len(sorted) {
 					cfg.SelectedRow = localRow
-					if m.phase == phaseEditing {
+					if m.phase == phaseEditing && m.editInline {
 						cfg.EditingCell = true
 						cfg.EditView = m.editInput.View()
 					}
+					// line Y = lines so far + table header(1) + localRow
+					selectedLineY = countLines(b.String()) + 1 + localRow
 				}
 			}
 			b.WriteString(table.Render(sorted, cfg) + "\n")
@@ -389,10 +421,12 @@ func (m *Model) View() string {
 		}
 		if isEdit {
 			cfg.SelectedRow = m.selectedRow
-			if m.phase == phaseEditing {
+			if m.phase == phaseEditing && m.editInline {
 				cfg.EditingCell = true
 				cfg.EditView = m.editInput.View()
 			}
+			// line Y = lines so far + table header(1) + selectedRow
+			selectedLineY = countLines(b.String()) + 1 + m.selectedRow
 		}
 		b.WriteString(table.Render(m.displayed, cfg) + "\n")
 	}
@@ -401,7 +435,39 @@ func (m *Model) View() string {
 		b.WriteString(appTui.DeleteConfirmStyle.Render("Delete this task? (y/n)") + "\n")
 	}
 
-	return b.String()
+	output := b.String()
+
+	// Insert modal right after the selected row
+	if m.phase == phaseEditing && !m.editInline && selectedLineY >= 0 {
+		col := table.Columns[m.selectedCol]
+		label := table.HeaderLabel(col)
+
+		modalW := w - 4
+		if modalW < 40 {
+			modalW = 40
+		}
+
+		var mb strings.Builder
+		mb.WriteString(appTui.ModalTitleStyle.Render(fmt.Sprintf("Edit %s", label)) + "\n\n")
+		mb.WriteString(m.editInput.View() + "\n\n")
+		mb.WriteString(appTui.HintStyle.Render("Enter=save | Escape=cancel"))
+
+		modal := appTui.ModalStyle.Width(modalW).Render(mb.String())
+
+		lines := strings.Split(output, "\n")
+		insertAt := selectedLineY + 1
+		if insertAt > len(lines) {
+			insertAt = len(lines)
+		}
+
+		var result []string
+		result = append(result, lines[:insertAt]...)
+		result = append(result, modal)
+		result = append(result, lines[insertAt:]...)
+		output = strings.Join(result, "\n")
+	}
+
+	return output
 }
 
 var (
@@ -415,6 +481,56 @@ func remainingLabel(total float64, workday float64) string {
 		return overtimeStyle.Render(fmt.Sprintf("+%.1fh", diff))
 	}
 	return remainingStyle.Render(fmt.Sprintf("-%.1fh", -diff))
+}
+
+// weekOffsetsWithTasks returns sorted (ascending) list of week offsets that contain tasks.
+func (m *Model) weekOffsetsWithTasks() []int {
+	if len(m.indexedAll) == 0 {
+		return nil
+	}
+	nowMonday, _ := timeutil.GetWeekBounds(time.Now())
+	seen := map[int]bool{}
+	for _, t := range m.indexedAll {
+		d, ok := timeutil.ParseDate(t.Date)
+		if !ok {
+			continue
+		}
+		taskMonday, _ := timeutil.GetWeekBounds(d)
+		days := int(taskMonday.Sub(nowMonday).Hours() / 24)
+		offset := days / 7
+		seen[offset] = true
+	}
+	offsets := make([]int, 0, len(seen))
+	for o := range seen {
+		offsets = append(offsets, o)
+	}
+	sort.Ints(offsets)
+	return offsets
+}
+
+// adjacentWeekOffset finds the next week offset with tasks in the given direction (-1 or +1).
+// Returns current offset if no adjacent week with tasks exists.
+func (m *Model) adjacentWeekOffset(direction int) int {
+	offsets := m.weekOffsetsWithTasks()
+	if len(offsets) == 0 {
+		return m.weekOffset
+	}
+	if direction < 0 {
+		// Find the largest offset smaller than current
+		for i := len(offsets) - 1; i >= 0; i-- {
+			if offsets[i] < m.weekOffset {
+				return offsets[i]
+			}
+		}
+	} else {
+		// Find the smallest offset larger than current
+		for _, o := range offsets {
+			if o > m.weekOffset {
+				return o
+			}
+		}
+	}
+	return m.weekOffset
 }
 
 func getField(t model.Task, col string) string {

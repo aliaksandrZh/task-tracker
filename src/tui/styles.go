@@ -57,6 +57,17 @@ var (
 	// Prompt label
 	PromptStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("3"))
+
+	// Modal overlay box
+	ModalStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("6")).
+			Padding(0, 2)
+
+	// Modal title
+	ModalTitleStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("6"))
 )
 
 // TypeColor returns the appropriate color for a task type.

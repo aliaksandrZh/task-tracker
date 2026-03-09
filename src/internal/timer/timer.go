@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -37,7 +38,7 @@ func (t *Timer) path() string {
 	return filepath.Join(t.Dir, ".timer.json")
 }
 
-// FormatElapsed converts milliseconds to a human-readable time string.
+// FormatElapsed converts milliseconds to a human-readable time string (e.g. "1h 30m").
 func FormatElapsed(ms int64) string {
 	totalMin := int(float64(ms) / 60000)
 	if totalMin < 1 {
@@ -52,6 +53,18 @@ func FormatElapsed(ms int64) string {
 		return fmt.Sprintf("%dh", h)
 	}
 	return fmt.Sprintf("%dm", m)
+}
+
+// FormatElapsedDecimal converts milliseconds to decimal hours (e.g. "1.5h").
+func FormatElapsedDecimal(ms int64) string {
+	hours := float64(ms) / 3600000
+	if hours < 0.1 {
+		return "0h"
+	}
+	s := fmt.Sprintf("%.1f", hours)
+	s = strings.TrimRight(s, "0")
+	s = strings.TrimRight(s, ".")
+	return s + "h"
 }
 
 func nowMs() int64 {
@@ -96,7 +109,7 @@ func (t *Timer) Stop() (*TimerStatus, error) {
 	return &TimerStatus{
 		TimerData: data,
 		Elapsed:   elapsed,
-		TimeSpent: FormatElapsed(elapsed),
+		TimeSpent: FormatElapsedDecimal(elapsed),
 	}, nil
 }
 

@@ -49,6 +49,7 @@ func NewApp() App {
 
 func (a App) Init() tea.Cmd {
 	return tea.Batch(
+		tea.SetWindowTitle("Worklog"),
 		a.refreshTimer(),
 		a.checkUpdates(),
 		a.timerTick(),

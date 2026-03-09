@@ -20,7 +20,7 @@ type Config struct {
 	SortDir     string
 	SelectedRow int // -1 = no selection
 	SelectedCol int
-	EditingCell bool
+	EditingCell bool   // true when a cell is being edited inline
 	EditView    string // rendered textinput View() for inline editing
 }
 
@@ -103,7 +103,7 @@ func Render(tasks []model.IndexedTask, cfg Config) string {
 	var headerParts []string
 	for _, col := range Columns {
 		cw := getColWidth(col, nameW, commentsW)
-		label := headerLabel(col)
+		label := HeaderLabel(col)
 		if cfg.SortBy == col {
 			label += indicator
 		}
@@ -121,10 +121,10 @@ func Render(tasks []model.IndexedTask, cfg Config) string {
 			cw := getColWidth(col, nameW, commentsW)
 			val := getField(t.Task, col)
 
-			// If editing this cell, render the textinput inline
+			// Inline editing: render textinput in a fixed-width box to prevent column shift
 			if isSelected && cfg.EditingCell && ci == cfg.SelectedCol {
-				// Use the rendered textinput view directly in the cell
-				cellParts = append(cellParts, cfg.EditView)
+				fixed := lipgloss.NewStyle().Width(cw).MaxWidth(cw).Render(cfg.EditView)
+				cellParts = append(cellParts, fixed)
 				continue
 			}
 
@@ -148,7 +148,8 @@ func Render(tasks []model.IndexedTask, cfg Config) string {
 	return header + "\n" + strings.Join(rows, "\n")
 }
 
-func headerLabel(col string) string {
+// HeaderLabel returns the display label for a column.
+func HeaderLabel(col string) string {
 	switch col {
 	case "date":
 		return "Date"
