@@ -1,5 +1,7 @@
 # Worklog
 
+[![Tests](https://github.com/aliaksandrZh/worklog/actions/workflows/test.yml/badge.svg)](https://github.com/aliaksandrZh/worklog/actions/workflows/test.yml)
+
 A terminal UI for tracking daily work tasks (bugs, tasks) with time spent. Built with Go and [Bubble Tea](https://github.com/charmbracelet/bubbletea) for native terminal rendering with zero flicker.
 
 ## Quick Start
