@@ -23,7 +23,7 @@ func init() {
 		case appTui.ScreenPaste:
 			return paste.New(repo)
 		case appTui.ScreenSummary:
-			return summary.New(repo)
+			return summary.New(repo, tmr)
 		case appTui.ScreenTimerStart:
 			return timerstart.New(tmr)
 		default:

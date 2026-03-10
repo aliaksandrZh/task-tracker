@@ -8,12 +8,11 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-
 	"github.com/aliaksandrZh/worklog/src/internal/model"
 	"github.com/aliaksandrZh/worklog/src/internal/prefs"
 	"github.com/aliaksandrZh/worklog/src/internal/store"
 	"github.com/aliaksandrZh/worklog/src/internal/timeutil"
+	"github.com/aliaksandrZh/worklog/src/internal/timer"
 	appTui "github.com/aliaksandrZh/worklog/src/tui"
 	"github.com/aliaksandrZh/worklog/src/tui/table"
 )
@@ -45,6 +44,7 @@ type Model struct {
 	editInline  bool // true = edit in cell, false = edit below table
 
 	repo  store.TaskRepository
+	tmr   *timer.Timer
 	prefs *prefs.Store
 
 	allTasks     []model.Task
@@ -57,7 +57,7 @@ type Model struct {
 }
 
 // New creates a new summary model.
-func New(repo store.TaskRepository) *Model {
+func New(repo store.TaskRepository, tmr *timer.Timer) *Model {
 	ti := textinput.New()
 	ti.Prompt = ""
 	ti.CharLimit = 200
@@ -72,6 +72,7 @@ func New(repo store.TaskRepository) *Model {
 		sortDir:   pref.SortDir,
 		editInput: ti,
 		repo:      repo,
+		tmr:       tmr,
 		prefs:     p,
 	}
 	if m.sortDir == "" {
@@ -89,7 +90,21 @@ func (m *Model) reload() {
 		m.indexedAll[i] = model.IndexedTask{Task: t, Index: i}
 	}
 	m.dailyGroups = timeutil.GroupByDate(m.indexedAll)
+	m.ensureTodayGroup()
 	m.refreshDisplayed()
+}
+
+// ensureTodayGroup makes sure today's date is in dailyGroups and sets dailyIdx to it.
+func (m *Model) ensureTodayGroup() {
+	idx := timeutil.TodayIndex(m.dailyGroups)
+	if idx >= 0 {
+		m.dailyIdx = idx
+		return
+	}
+	// Insert synthetic empty group for today at index 0 (most recent)
+	today := timeutil.DateGroup{Key: timeutil.TodayStr()}
+	m.dailyGroups = append([]timeutil.DateGroup{today}, m.dailyGroups...)
+	m.dailyIdx = 0
 }
 
 func (m *Model) refreshDisplayed() {
@@ -109,6 +124,11 @@ func (m *Model) refreshDisplayed() {
 		}
 		m.displayed = timeutil.SortTasks(raw, m.sortBy, m.sortDir)
 	}
+}
+
+// Reload refreshes data from the store (called when returning from sub-screens).
+func (m *Model) Reload() {
+	m.reload()
 }
 
 func (m *Model) Init() tea.Cmd { return nil }
@@ -144,8 +164,17 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 
 func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	switch msg.String() {
-	case "esc", "escape":
-		return m, done()
+	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "a":
+		return m, navigate(appTui.ScreenAdd)
+	case "p":
+		return m, navigate(appTui.ScreenPaste)
+	case "t":
+		if m.tmr.GetStatus() != nil {
+			return m, stopTimer()
+		}
+		return m, navigate(appTui.ScreenTimerStart)
 	case "e":
 		if len(m.displayed) > 0 {
 			m.phase = phaseSelect
@@ -324,9 +353,16 @@ func countLines(s string) int {
 	return strings.Count(s, "\n")
 }
 
+func (m *Model) timerHint() string {
+	if m.tmr.GetStatus() != nil {
+		return "t=stop timer"
+	}
+	return "t=timer"
+}
+
 func (m *Model) View() string {
-	if len(m.allTasks) == 0 {
-		return "No tasks found. Press Escape to go back.\n"
+	if len(m.allTasks) == 0 && len(m.dailyGroups) <= 1 {
+		return fmt.Sprintf("No tasks yet. a=add | p=paste | %s | q=quit\n", m.timerHint())
 	}
 
 	var b strings.Builder
@@ -342,7 +378,7 @@ func (m *Model) View() string {
 	if m.sortBy != "" {
 		sortHint = m.sortBy + " " + m.sortDir
 	}
-	viewHint := fmt.Sprintf("← prev | → next | e=edit | d=daily | w=weekly | s=sort(%s) | S=flip | Esc=back", sortHint)
+	viewHint := fmt.Sprintf("a=add | p=paste | %s | ← → nav | e=edit | d=daily | w=weekly | s=sort(%s) | q=quit", m.timerHint(), sortHint)
 	editHint := fmt.Sprintf("↑↓=row | ←→=col | Enter=edit | x=delete | s=sort(%s) | S=flip | e/Esc=back", sortHint)
 
 	w := m.width
@@ -368,7 +404,7 @@ func (m *Model) View() string {
 			b.WriteString("\n")
 			b.WriteString(appTui.PromptStyle.Render(
 				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))))
-			b.WriteString(" " + remainingLabel(g.Total, 8) + "\n")
+			b.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + "\n")
 
 			sorted := timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)
 			cfg := table.Config{
@@ -409,7 +445,7 @@ func (m *Model) View() string {
 			g := m.dailyGroups[m.dailyIdx]
 			b.WriteString(appTui.PromptStyle.Render(
 				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))))
-			b.WriteString(" " + remainingLabel(g.Total, 8) + "\n")
+			b.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + "\n")
 		}
 
 		cfg := table.Config{
@@ -468,19 +504,6 @@ func (m *Model) View() string {
 	}
 
 	return output
-}
-
-var (
-	overtimeStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
-	remainingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
-)
-
-func remainingLabel(total float64, workday float64) string {
-	diff := total - workday
-	if diff >= 0 {
-		return overtimeStyle.Render(fmt.Sprintf("+%.1fh", diff))
-	}
-	return remainingStyle.Render(fmt.Sprintf("-%.1fh", -diff))
 }
 
 // weekOffsetsWithTasks returns sorted (ascending) list of week offsets that contain tasks.
@@ -560,8 +583,12 @@ func indexOf(slice []string, val string) int {
 	return 0
 }
 
-func done() tea.Cmd {
-	return func() tea.Msg { return appTui.DoneMsg{} }
+func navigate(screen appTui.Screen) tea.Cmd {
+	return func() tea.Msg { return appTui.NavigateMsg{Screen: screen} }
+}
+
+func stopTimer() tea.Cmd {
+	return func() tea.Msg { return appTui.StopTimerMsg{} }
 }
 
 func flash(text string) tea.Cmd {

@@ -119,6 +119,61 @@ func TestSortTasks(t *testing.T) {
 	}
 }
 
+func TestGroupByDateSortOrder(t *testing.T) {
+	// Regression: string sort puts "3/9" before "3/10" because '9' > '1'.
+	// Date-aware sort should put 3/10 first (most recent).
+	tasks := []model.IndexedTask{
+		{Task: model.Task{Date: "3/1/2026", TimeSpent: "1h"}, Index: 0},
+		{Task: model.Task{Date: "3/9/2026", TimeSpent: "1h"}, Index: 1},
+		{Task: model.Task{Date: "3/10/2026", TimeSpent: "1h"}, Index: 2},
+	}
+	groups := GroupByDate(tasks)
+	if len(groups) != 3 {
+		t.Fatalf("expected 3 groups, got %d", len(groups))
+	}
+	want := []string{"3/10/2026", "3/9/2026", "3/1/2026"}
+	for i, w := range want {
+		if groups[i].Key != w {
+			t.Errorf("groups[%d].Key = %s, want %s", i, groups[i].Key, w)
+		}
+	}
+}
+
+func TestTodayIndex(t *testing.T) {
+	today := TodayStr()
+	groups := []DateGroup{
+		{Key: today},
+		{Key: "1/1/2020"},
+	}
+	idx := TodayIndex(groups)
+	if idx != 0 {
+		t.Errorf("expected 0, got %d", idx)
+	}
+
+	// Not found
+	groups2 := []DateGroup{{Key: "1/1/2020"}}
+	idx2 := TodayIndex(groups2)
+	if idx2 != -1 {
+		t.Errorf("expected -1, got %d", idx2)
+	}
+}
+
+func TestSumTimeForDate(t *testing.T) {
+	tasks := []model.Task{
+		{Date: "3/5/2026", TimeSpent: "1h"},
+		{Date: "3/5/2026", TimeSpent: "30m"},
+		{Date: "3/4/2026", TimeSpent: "2h"},
+	}
+	got := SumTimeForDate(tasks, "3/5/2026")
+	if got != 1.5 {
+		t.Errorf("expected 1.5, got %v", got)
+	}
+	got2 := SumTimeForDate(tasks, "3/6/2026")
+	if got2 != 0 {
+		t.Errorf("expected 0, got %v", got2)
+	}
+}
+
 func TestSortByTimeSpent(t *testing.T) {
 	tasks := []model.IndexedTask{
 		{Task: model.Task{TimeSpent: "2h"}, Index: 0},

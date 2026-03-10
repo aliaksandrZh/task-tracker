@@ -20,40 +20,53 @@ type ScreenModel interface {
 	View() string
 }
 
+// Reloadable is implemented by screens that can refresh their data.
+type Reloadable interface {
+	Reload()
+}
+
 // ScreenFactory creates screen models. Set by the cmd package to avoid import cycles.
 var ScreenFactory func(screen Screen, repo store.TaskRepository, tmr *timer.Timer) ScreenModel
 
 // App is the root Bubble Tea model.
 type App struct {
 	screen        Screen
-	activeModel   ScreenModel
+	activeModel   ScreenModel // current sub-screen (add, paste, timerstart) or nil
+	homeModel     ScreenModel // the summary screen (always alive)
 	flash         string
 	timerInfo     *timer.TimerStatus
 	updateCount   int
 	repo          store.TaskRepository
 	tmr           *timer.Timer
 	width, height int
-	menuCursor    int
 }
 
 // NewApp creates the root app model.
 func NewApp() App {
 	repo := store.New()
 	tmr := timer.New(".")
-	return App{
-		screen: ScreenMenu,
+	app := App{
+		screen: ScreenSummary,
 		repo:   repo,
 		tmr:    tmr,
 	}
+	if ScreenFactory != nil {
+		app.homeModel = ScreenFactory(ScreenSummary, repo, tmr)
+	}
+	return app
 }
 
 func (a App) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		tea.SetWindowTitle("Worklog"),
 		a.refreshTimer(),
 		a.checkUpdates(),
 		a.timerTick(),
-	)
+	}
+	if a.homeModel != nil {
+		cmds = append(cmds, a.homeModel.Init())
+	}
+	return tea.Batch(cmds...)
 }
 
 func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -61,20 +74,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
-		// Forward to active screen
-		if a.activeModel != nil {
-			newModel, cmd := a.activeModel.Update(msg)
-			a.activeModel = newModel
+		// Forward to active sub-screen or home
+		target := a.currentModel()
+		if target != nil {
+			newModel, cmd := target.Update(msg)
+			a.setCurrentModel(newModel)
 			return a, cmd
 		}
 
 	case tea.KeyMsg:
-		if a.screen == ScreenMenu {
-			return a.handleMenuKey(msg)
-		}
-		if a.activeModel != nil {
-			newModel, cmd := a.activeModel.Update(msg)
-			a.activeModel = newModel
+		target := a.currentModel()
+		if target != nil {
+			newModel, cmd := target.Update(msg)
+			a.setCurrentModel(newModel)
 			return a, cmd
 		}
 
@@ -82,7 +94,11 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.navigate(msg.Screen)
 
 	case DoneMsg:
-		return a.navigate(ScreenMenu)
+		// Return to summary (home)
+		return a.returnHome()
+
+	case StopTimerMsg:
+		return a.stopTimer()
 
 	case FlashMsg:
 		a.flash = msg.Text
@@ -99,15 +115,32 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.updateCount = msg.Count
 
 	default:
-		// Forward all other messages (blink, etc.) to active screen
-		if a.activeModel != nil {
-			newModel, cmd := a.activeModel.Update(msg)
-			a.activeModel = newModel
+		target := a.currentModel()
+		if target != nil {
+			newModel, cmd := target.Update(msg)
+			a.setCurrentModel(newModel)
 			return a, cmd
 		}
 	}
 
 	return a, nil
+}
+
+// currentModel returns the active sub-screen, or the home model if on summary.
+func (a *App) currentModel() ScreenModel {
+	if a.activeModel != nil {
+		return a.activeModel
+	}
+	return a.homeModel
+}
+
+// setCurrentModel updates the active sub-screen or home model.
+func (a *App) setCurrentModel(m ScreenModel) {
+	if a.activeModel != nil {
+		a.activeModel = m
+	} else {
+		a.homeModel = m
+	}
 }
 
 func (a App) View() string {
@@ -143,95 +176,26 @@ func (a App) View() string {
 
 	b.WriteString("\n")
 
-	// Active screen
-	if a.activeModel != nil {
-		b.WriteString(a.activeModel.View())
-	} else {
-		b.WriteString(a.menuView())
+	// Active screen or home
+	target := a.currentModel()
+	if target != nil {
+		b.WriteString(target.View())
 	}
 
 	return b.String()
 }
 
-func (a App) menuItems() []struct{ key, label string } {
-	items := []struct{ key, label string }{
-		{"a", "Add Task"},
-		{"p", "Paste Tasks"},
-		{"s", "View Summary"},
-	}
-	if a.timerInfo != nil {
-		items = append(items, struct{ key, label string }{"t", "Stop Timer"})
-	} else {
-		items = append(items, struct{ key, label string }{"t", "Start Timer"})
-	}
-	items = append(items, struct{ key, label string }{"q", "Exit"})
-	return items
-}
-
-// handleMenuKey processes keyboard shortcuts and arrow navigation on the menu screen.
-func (a App) handleMenuKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	items := a.menuItems()
-
-	switch msg.String() {
-	case "q", "ctrl+c":
-		return a, tea.Quit
-	case "a":
-		return a.navigate(ScreenAdd)
-	case "p":
-		return a.navigate(ScreenPaste)
-	case "s":
-		return a.navigate(ScreenSummary)
-	case "t":
-		if a.timerInfo != nil {
-			return a.stopTimer()
-		}
-		return a.navigate(ScreenTimerStart)
-	case "up", "k":
-		a.menuCursor--
-		if a.menuCursor < 0 {
-			a.menuCursor = len(items) - 1
-		}
-	case "down", "j":
-		a.menuCursor++
-		if a.menuCursor >= len(items) {
-			a.menuCursor = 0
-		}
-	case "enter":
-		if a.menuCursor >= 0 && a.menuCursor < len(items) {
-			key := items[a.menuCursor].key
-			switch key {
-			case "a":
-				return a.navigate(ScreenAdd)
-			case "p":
-				return a.navigate(ScreenPaste)
-			case "s":
-				return a.navigate(ScreenSummary)
-			case "t":
-				if a.timerInfo != nil {
-					return a.stopTimer()
-				}
-				return a.navigate(ScreenTimerStart)
-			case "q":
-				return a, tea.Quit
-			}
-		}
-	}
-	return a, nil
-}
-
 func (a App) navigate(screen Screen) (tea.Model, tea.Cmd) {
-	a.screen = screen
 	a.timerInfo = a.tmr.GetStatus()
 
-	if screen == ScreenMenu {
-		a.activeModel = nil
-		return a, nil
+	if screen == ScreenSummary {
+		return a.returnHome()
 	}
 
+	a.screen = screen
 	if ScreenFactory != nil {
 		a.activeModel = ScreenFactory(screen, a.repo, a.tmr)
 		if a.activeModel != nil {
-			// Send initial WindowSizeMsg so screens know the width
 			cmd := a.activeModel.Init()
 			newModel, sizeCmd := a.activeModel.Update(tea.WindowSizeMsg{
 				Width: a.width, Height: a.height,
@@ -239,6 +203,26 @@ func (a App) navigate(screen Screen) (tea.Model, tea.Cmd) {
 			a.activeModel = newModel
 			return a, tea.Batch(cmd, sizeCmd)
 		}
+	}
+	return a, nil
+}
+
+func (a App) returnHome() (tea.Model, tea.Cmd) {
+	a.screen = ScreenSummary
+	a.activeModel = nil
+	a.timerInfo = a.tmr.GetStatus()
+
+	// Reload summary data to pick up any changes from sub-screens
+	if r, ok := a.homeModel.(Reloadable); ok {
+		r.Reload()
+	}
+	// Forward current window size
+	if a.homeModel != nil {
+		newModel, cmd := a.homeModel.Update(tea.WindowSizeMsg{
+			Width: a.width, Height: a.height,
+		})
+		a.homeModel = newModel
+		return a, cmd
 	}
 	return a, nil
 }
@@ -260,27 +244,12 @@ func (a App) stopTimer() (tea.Model, tea.Cmd) {
 	_ = a.repo.AddTask(task)
 	a.timerInfo = nil
 	a.flash = fmt.Sprintf("Timer stopped: %s %s: %s (%s)", task.Type, task.Number, task.Name, task.TimeSpent)
-	return a, a.clearFlashAfter(3 * time.Second)
-}
 
-func (a App) menuView() string {
-	var b strings.Builder
-	b.WriteString(HintStyle.Render("Arrow keys + Enter or press shortcut key") + "\n\n")
-
-	items := a.menuItems()
-	for i, item := range items {
-		cursor := "  "
-		if i == a.menuCursor {
-			cursor = "> "
-		}
-		line := fmt.Sprintf("%s(%s) %s", cursor, item.key, item.label)
-		if i == a.menuCursor {
-			b.WriteString(SelectedStyle.Render(line) + "\n")
-		} else {
-			b.WriteString(line + "\n")
-		}
+	// Reload summary to show the new task
+	if r, ok := a.homeModel.(Reloadable); ok {
+		r.Reload()
 	}
-	return b.String()
+	return a, a.clearFlashAfter(3 * time.Second)
 }
 
 func (a App) refreshTimer() tea.Cmd {

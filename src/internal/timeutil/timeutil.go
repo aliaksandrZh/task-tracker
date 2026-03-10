@@ -87,7 +87,11 @@ func GroupByDate(tasks []model.IndexedTask) []DateGroup {
 	for k := range m {
 		keys = append(keys, k)
 	}
-	sort.Sort(sort.Reverse(sort.StringSlice(keys)))
+	sort.Slice(keys, func(i, j int) bool {
+		di, _ := ParseDate(keys[i])
+		dj, _ := ParseDate(keys[j])
+		return di.After(dj) // most recent first
+	})
 
 	groups := make([]DateGroup, 0, len(keys))
 	for _, k := range keys {
@@ -160,6 +164,28 @@ func getField(t model.Task, field string) string {
 	default:
 		return ""
 	}
+}
+
+// TodayIndex returns the index of today's date in the groups slice, or -1 if not found.
+func TodayIndex(groups []DateGroup) int {
+	today := TodayStr()
+	for i, g := range groups {
+		if g.Key == today {
+			return i
+		}
+	}
+	return -1
+}
+
+// SumTimeForDate returns total hours logged for a given date string across all tasks.
+func SumTimeForDate(tasks []model.Task, dateStr string) float64 {
+	var total float64
+	for _, t := range tasks {
+		if t.Date == dateStr {
+			total += ParseTime(t.TimeSpent)
+		}
+	}
+	return total
 }
 
 // WeekResult holds filtered tasks for a week period.

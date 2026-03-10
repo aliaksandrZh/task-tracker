@@ -24,6 +24,9 @@ type FlashMsg struct {
 	Text string
 }
 
+// StopTimerMsg requests the app to stop the running timer.
+type StopTimerMsg struct{}
+
 // TimerTickMsg triggers periodic timer refresh.
 type TimerTickMsg struct{}
 

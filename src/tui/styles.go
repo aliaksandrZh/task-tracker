@@ -1,6 +1,10 @@
 package tui
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"fmt"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 var (
 	// Header bar style
@@ -68,7 +72,22 @@ var (
 	ModalTitleStyle = lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("6"))
+
+	// Overtime (positive hours beyond workday)
+	OvertimeStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("2")) // green
+
+	// Remaining (hours left to reach workday)
+	RemainingStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("1")) // red
 )
+
+// RemainingLabel returns a styled string showing overtime (+) or remaining (-) hours.
+func RemainingLabel(total float64, workday float64) string {
+	diff := total - workday
+	if diff >= 0 {
+		return OvertimeStyle.Render(fmt.Sprintf("+%.1fh", diff))
+	}
+	return RemainingStyle.Render(fmt.Sprintf("-%.1fh", -diff))
+}
 
 // TypeColor returns the appropriate color for a task type.
 func TypeColor(typ string) lipgloss.Color {
