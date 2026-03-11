@@ -3,6 +3,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aliaksandrZh/worklog/src/internal/model"
@@ -160,6 +161,52 @@ func TestValidDatePreserved(t *testing.T) {
 	tasks, _ := s.LoadTasks()
 	if tasks[0].Date != "1/15/2026" {
 		t.Errorf("valid date should be preserved, got %q", tasks[0].Date)
+	}
+}
+
+func TestSanitizeNewlines(t *testing.T) {
+	s := tempStore(t)
+	err := s.AddTask(model.Task{
+		Date:     "3/5/2026",
+		Type:     "Bug",
+		Number:   "123",
+		Name:     "Fix\nlogin\r\npage",
+		Comments: "## Header\n\n- bullet 1\n- bullet 2\n\nSome `code` block",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, err := s.LoadTasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("expected 1 task, got %d", len(tasks))
+	}
+	if strings.Contains(tasks[0].Name, "\n") {
+		t.Errorf("name should not contain newlines: %q", tasks[0].Name)
+	}
+	if strings.Contains(tasks[0].Comments, "\n") {
+		t.Errorf("comments should not contain newlines: %q", tasks[0].Comments)
+	}
+	if tasks[0].Name != "Fix login page" {
+		t.Errorf("expected 'Fix login page', got %q", tasks[0].Name)
+	}
+}
+
+func TestSanitizeOnUpdate(t *testing.T) {
+	s := tempStore(t)
+	_ = s.AddTask(model.Task{Date: "3/5/2026", Name: "Test", Comments: "old"})
+	err := s.UpdateTask(0, map[string]string{"comments": "line1\nline2\nline3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tasks, _ := s.LoadTasks()
+	if strings.Contains(tasks[0].Comments, "\n") {
+		t.Errorf("updated comments should not contain newlines: %q", tasks[0].Comments)
+	}
+	if tasks[0].Comments != "line1 line2 line3" {
+		t.Errorf("expected 'line1 line2 line3', got %q", tasks[0].Comments)
 	}
 }
 

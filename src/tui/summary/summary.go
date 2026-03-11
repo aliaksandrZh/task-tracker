@@ -167,8 +167,6 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "a":
-		return m, navigate(appTui.ScreenAdd)
-	case "p":
 		return m, navigate(appTui.ScreenPaste)
 	case "t":
 		if m.tmr.GetStatus() != nil {
@@ -362,7 +360,7 @@ func (m *Model) timerHint() string {
 
 func (m *Model) View() string {
 	if len(m.allTasks) == 0 && len(m.dailyGroups) <= 1 {
-		return fmt.Sprintf("No tasks yet. a=add | p=paste | %s | q=quit\n", m.timerHint())
+		return fmt.Sprintf("No tasks yet. a=add | %s | q=quit\n", m.timerHint())
 	}
 
 	var b strings.Builder
@@ -378,7 +376,7 @@ func (m *Model) View() string {
 	if m.sortBy != "" {
 		sortHint = m.sortBy + " " + m.sortDir
 	}
-	viewHint := fmt.Sprintf("a=add | p=paste | %s | ← → nav | e=edit | d=daily | w=weekly | s=sort(%s) | q=quit", m.timerHint(), sortHint)
+	viewHint := fmt.Sprintf("a=add | %s | ← → nav | e=edit | d=daily | w=weekly | s=sort(%s) | q=quit", m.timerHint(), sortHint)
 	editHint := fmt.Sprintf("↑↓=row | ←→=col | Enter=edit | x=delete | s=sort(%s) | S=flip | e/Esc=back", sortHint)
 
 	w := m.width

@@ -64,7 +64,27 @@ func IsValidDate(str string) bool {
 	return m >= 1 && m <= 12 && d >= 1 && d <= 31 && y >= 2000
 }
 
+// sanitizeField collapses newlines and trims whitespace to keep CSV safe.
+func sanitizeField(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return strings.TrimSpace(s)
+}
+
+// sanitizeTask cleans all fields of a task for safe CSV storage.
+func sanitizeTask(task model.Task) model.Task {
+	task.Date = sanitizeField(task.Date)
+	task.Type = sanitizeField(task.Type)
+	task.Number = sanitizeField(task.Number)
+	task.Name = sanitizeField(task.Name)
+	task.TimeSpent = sanitizeField(task.TimeSpent)
+	task.Comments = sanitizeField(task.Comments)
+	return task
+}
+
 func ensureDate(task model.Task) model.Task {
+	task = sanitizeTask(task)
 	if !IsValidDate(task.Date) {
 		task.Date = timeutil.TodayStr()
 	}
@@ -195,6 +215,7 @@ func (s *CSVStore) UpdateTask(index int, updates map[string]string) error {
 	}
 	t := tasks[index]
 	for k, v := range updates {
+		v = sanitizeField(v)
 		switch k {
 		case "date":
 			t.Date = v

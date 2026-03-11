@@ -232,7 +232,7 @@ func (m *Model) View() string {
 
 func (m *Model) viewInput() string {
 	var b strings.Builder
-	b.WriteString(appTui.TitleStyle.Render("Paste Tasks") + "\n")
+	b.WriteString(appTui.TitleStyle.Render("Add Task") + "\n")
 	b.WriteString(appTui.HintStyle.Render("Type or paste your task. Enter=submit, Escape=cancel") + "\n")
 	b.WriteString(appTui.HintStyle.Render("Missing fields will be prompted. Examples:") + "\n")
 	b.WriteString(appTui.HintStyle.Render("  Bug 123: Fix login 1h") + "\n")

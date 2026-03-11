@@ -2,6 +2,8 @@ package tui
 
 import (
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -11,6 +13,11 @@ import (
 	"github.com/aliaksandrZh/worklog/src/internal/store"
 	"github.com/aliaksandrZh/worklog/src/internal/timer"
 	"github.com/aliaksandrZh/worklog/src/internal/update"
+)
+
+const (
+	flashDuration       = 5 * time.Second
+	flashUpdateDuration = 15 * time.Second
 )
 
 // ScreenModel is the interface each TUI screen must implement.
@@ -46,9 +53,9 @@ func NewApp() App {
 	repo := store.New()
 	tmr := timer.New(".")
 	app := App{
-		screen: ScreenSummary,
-		repo:   repo,
-		tmr:    tmr,
+		screen:      ScreenSummary,
+		repo:        repo,
+		tmr:         tmr,
 	}
 	if ScreenFactory != nil {
 		app.homeModel = ScreenFactory(ScreenSummary, repo, tmr)
@@ -83,6 +90,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.KeyMsg:
+		// Handle update shortcut at app level before forwarding
+		if msg.String() == "u" && a.updateCount > 0 && a.activeModel == nil {
+			cmd := "git pull && go build -o tt ."
+			copyToClipboard(cmd)
+			a.flash = "Copied to clipboard: " + cmd
+			return a, a.clearFlashAfter(flashUpdateDuration)
+		}
 		target := a.currentModel()
 		if target != nil {
 			newModel, cmd := target.Update(msg)
@@ -102,7 +116,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case FlashMsg:
 		a.flash = msg.Text
-		return a, a.clearFlashAfter(3 * time.Second)
+		return a, a.clearFlashAfter(flashDuration)
 
 	case clearFlashMsg:
 		a.flash = ""
@@ -146,40 +160,38 @@ func (a *App) setCurrentModel(m ScreenModel) {
 func (a App) View() string {
 	var b strings.Builder
 
-	// Header
-	bar := strings.Repeat("━", 40)
-	b.WriteString(HeaderStyle.Render(bar) + "\n")
-	b.WriteString(HeaderStyle.Render("  Worklog") + "\n")
-	b.WriteString(HeaderStyle.Render(bar) + "\n")
+	// Active screen or home
+	target := a.currentModel()
+	if target != nil {
+		b.WriteString(target.View())
+	}
 
-	// Update notification
+	// Footer: fixed 3-line area (timer, flash, update) — always rendered to prevent shifting
+	b.WriteString("\n")
+
+	if a.timerInfo != nil {
+		elapsed := timer.FormatElapsed(time.Now().UnixMilli() - a.timerInfo.StartedAt)
+		b.WriteString(TimerStyle.Render(
+			fmt.Sprintf("⏱ %s %s: %s — %s", a.timerInfo.Type, a.timerInfo.Number, a.timerInfo.Name, elapsed)) + "\n")
+	} else {
+		b.WriteString("\n")
+	}
+
+	if a.flash != "" {
+		b.WriteString(FlashStyle.Render(a.flash) + "\n")
+	} else {
+		b.WriteString("\n")
+	}
+
 	if a.updateCount > 0 {
 		plural := ""
 		if a.updateCount > 1 {
 			plural = "s"
 		}
 		b.WriteString(UpdateStyle.Render(
-			fmt.Sprintf("Update available (%d commit%s behind). Run: git pull", a.updateCount, plural)) + "\n")
-	}
-
-	// Timer display
-	if a.timerInfo != nil {
-		elapsed := timer.FormatElapsed(time.Now().UnixMilli() - a.timerInfo.StartedAt)
-		b.WriteString(TimerStyle.Render(
-			fmt.Sprintf("⏱ %s %s: %s — %s", a.timerInfo.Type, a.timerInfo.Number, a.timerInfo.Name, elapsed)) + "\n")
-	}
-
-	// Flash message
-	if a.flash != "" {
-		b.WriteString(FlashStyle.Render(a.flash) + "\n")
-	}
-
-	b.WriteString("\n")
-
-	// Active screen or home
-	target := a.currentModel()
-	if target != nil {
-		b.WriteString(target.View())
+			fmt.Sprintf("Update available (%d commit%s behind). u=copy update command", a.updateCount, plural)) + "\n")
+	} else {
+		b.WriteString("\n")
 	}
 
 	return b.String()
@@ -249,7 +261,7 @@ func (a App) stopTimer() (tea.Model, tea.Cmd) {
 	if r, ok := a.homeModel.(Reloadable); ok {
 		r.Reload()
 	}
-	return a, a.clearFlashAfter(3 * time.Second)
+	return a, a.clearFlashAfter(flashDuration)
 }
 
 func (a App) refreshTimer() tea.Cmd {
@@ -269,6 +281,22 @@ func (a App) checkUpdates() tea.Cmd {
 		count := update.CheckForUpdates()
 		return UpdateAvailableMsg{Count: count}
 	}
+}
+
+func copyToClipboard(text string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("pbcopy")
+	case "linux":
+		cmd = exec.Command("xclip", "-selection", "clipboard")
+	case "windows":
+		cmd = exec.Command("clip")
+	default:
+		return
+	}
+	cmd.Stdin = strings.NewReader(text)
+	_ = cmd.Run()
 }
 
 type clearFlashMsg struct{}
