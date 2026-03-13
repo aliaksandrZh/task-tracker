@@ -353,14 +353,14 @@ func countLines(s string) int {
 
 func (m *Model) timerHint() string {
 	if m.tmr.GetStatus() != nil {
-		return "t=stop timer"
+		return "[t]=stop"
 	}
-	return "t=timer"
+	return "[t]imer"
 }
 
 func (m *Model) View() string {
 	if len(m.allTasks) == 0 && len(m.dailyGroups) <= 1 {
-		return fmt.Sprintf("No tasks yet. a=add | %s | q=quit\n", m.timerHint())
+		return fmt.Sprintf("No tasks yet. [a]dd | %s | [q]uit\n", m.timerHint())
 	}
 
 	var b strings.Builder
@@ -376,8 +376,8 @@ func (m *Model) View() string {
 	if m.sortBy != "" {
 		sortHint = m.sortBy + " " + m.sortDir
 	}
-	viewHint := fmt.Sprintf("a=add | %s | ← → nav | e=edit | d=daily | w=weekly | s=sort(%s) | q=quit", m.timerHint(), sortHint)
-	editHint := fmt.Sprintf("↑↓=row | ←→=col | Enter=edit | x=delete | s=sort(%s) | S=flip | e/Esc=back", sortHint)
+	viewHint := fmt.Sprintf("[a]dd [e]dit %s | [d]aily [w]eekly | ← → nav | [s]ort(%s) [q]uit", m.timerHint(), sortHint)
+	editHint := fmt.Sprintf("↑↓ row  ←→ col | Enter=edit [x]=delete | [s]ort(%s) [S]=flip | [e]/Esc=back", sortHint)
 
 	w := m.width
 	if w <= 0 {
