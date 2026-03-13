@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -87,6 +88,36 @@ func RemainingLabel(total float64, workday float64) string {
 		return OvertimeStyle.Render(fmt.Sprintf("+%.1fh", diff))
 	}
 	return RemainingStyle.Render(fmt.Sprintf("-%.1fh", -diff))
+}
+
+// ProgressBar renders an ASCII progress bar like [■■■■■■■■□□] 92%.
+func ProgressBar(current, target float64, width int) string {
+	if target <= 0 {
+		return ""
+	}
+	pct := current / target
+	filled := int(pct * float64(width))
+	if filled > width {
+		filled = width
+	}
+	if filled < 0 {
+		filled = 0
+	}
+	bar := fmt.Sprintf("[%s%s] %d%%",
+		strings.Repeat("■", filled),
+		strings.Repeat("□", width-filled),
+		int(pct*100))
+
+	var color lipgloss.Color
+	switch {
+	case pct >= 1.0:
+		color = lipgloss.Color("2") // green
+	case pct >= 0.5:
+		color = lipgloss.Color("3") // yellow
+	default:
+		color = lipgloss.Color("1") // red
+	}
+	return lipgloss.NewStyle().Foreground(color).Render(bar)
 }
 
 // TypeColor returns the appropriate color for a task type.

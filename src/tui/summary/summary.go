@@ -421,7 +421,7 @@ func (m *Model) View() string {
 			body.WriteString("\n")
 			body.WriteString(appTui.PromptStyle.Render(
 				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))))
-			body.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + "\n")
+			body.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + " " + appTui.ProgressBar(g.Total, 8, 10) + "\n")
 
 			sorted := timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)
 			cfg := table.Config{
@@ -460,7 +460,7 @@ func (m *Model) View() string {
 			g := m.dailyGroups[m.dailyIdx]
 			header.WriteString(appTui.PromptStyle.Render(
 				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))))
-			header.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + "\n")
+			header.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + " " + appTui.ProgressBar(g.Total, 8, 10) + "\n")
 		}
 
 		cfg := table.Config{
