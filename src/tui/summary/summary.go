@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/aliaksandrZh/worklog/src/internal/model"
 	"github.com/aliaksandrZh/worklog/src/internal/prefs"
@@ -53,7 +54,9 @@ type Model struct {
 	displayed    []model.IndexedTask
 	weeklyGroups []timeutil.DateGroup // day groups within current week
 
-	width int
+	width  int
+	height int
+	vp     viewport.Model
 }
 
 // New creates a new summary model.
@@ -137,6 +140,7 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 		return m, nil
 
 	case tea.KeyMsg:
@@ -149,6 +153,13 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 			return m.updateSelect(msg)
 		default:
 			return m.updateView(msg)
+		}
+
+	case tea.MouseMsg:
+		if m.phase == phaseView || m.phase == phaseSelect {
+			var cmd tea.Cmd
+			m.vp, cmd = m.vp.Update(msg)
+			return m, cmd
 		}
 	}
 
@@ -163,6 +174,14 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 }
 
 func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
+	// Forward scroll keys to viewport
+	switch msg.String() {
+	case "up", "down", "pgup", "pgdown", "k", "j":
+		var cmd tea.Cmd
+		m.vp, cmd = m.vp.Update(msg)
+		return m, cmd
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -363,8 +382,9 @@ func (m *Model) View() string {
 		return fmt.Sprintf("No tasks yet. [a]dd | %s | [q]uit\n", m.timerHint())
 	}
 
-	var b strings.Builder
-	selectedLineY := -1 // track Y position of the selected row
+	var header strings.Builder
+	var body strings.Builder
+	selectedLineY := -1 // track Y position of the selected row in body
 
 	isEdit := m.phase != phaseView
 	editLabel := ""
@@ -386,23 +406,22 @@ func (m *Model) View() string {
 
 	if m.mode == "weekly" {
 		result := timeutil.FilterWeekByOffset(m.indexedAll, m.weekOffset)
-		b.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Weekly Summary%s", editLabel)) + "\n")
+		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Weekly Summary%s", editLabel)) + "\n")
 		if isEdit {
-			b.WriteString(appTui.HintStyle.Render(editHint) + "\n")
+			header.WriteString(appTui.HintStyle.Render(editHint) + "\n")
 		} else {
-			b.WriteString(appTui.HintStyle.Render(viewHint) + "\n")
+			header.WriteString(appTui.HintStyle.Render(viewHint) + "\n")
 		}
-		b.WriteString("\n")
-		b.WriteString(appTui.PromptStyle.Render(
+		header.WriteString(appTui.PromptStyle.Render(
 			fmt.Sprintf("%s — %.1fh total (%d tasks)", result.Label, result.Total, len(result.Tasks))) + "\n")
 
 		// Render day-by-day sections
 		rowOffset := 0
 		for _, g := range m.weeklyGroups {
-			b.WriteString("\n")
-			b.WriteString(appTui.PromptStyle.Render(
+			body.WriteString("\n")
+			body.WriteString(appTui.PromptStyle.Render(
 				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))))
-			b.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + "\n")
+			body.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + "\n")
 
 			sorted := timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)
 			cfg := table.Config{
@@ -420,11 +439,10 @@ func (m *Model) View() string {
 						cfg.EditingCell = true
 						cfg.EditView = m.editInput.View()
 					}
-					// line Y = lines so far + table header(1) + localRow
-					selectedLineY = countLines(b.String()) + 1 + localRow
+					selectedLineY = countLines(body.String()) + 1 + localRow
 				}
 			}
-			b.WriteString(table.Render(sorted, cfg) + "\n")
+			body.WriteString(table.Render(sorted, cfg) + "\n")
 			rowOffset += len(g.Tasks)
 		}
 	} else {
@@ -432,18 +450,17 @@ func (m *Model) View() string {
 		if m.dailyIdx < len(m.dailyGroups) {
 			dateLabel = " — " + m.dailyGroups[m.dailyIdx].Key
 		}
-		b.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Daily Summary%s%s", editLabel, dateLabel)) + "\n")
+		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Daily Summary%s%s", editLabel, dateLabel)) + "\n")
 		if isEdit {
-			b.WriteString(appTui.HintStyle.Render(editHint) + "\n")
+			header.WriteString(appTui.HintStyle.Render(editHint) + "\n")
 		} else {
-			b.WriteString(appTui.HintStyle.Render(viewHint) + "\n")
+			header.WriteString(appTui.HintStyle.Render(viewHint) + "\n")
 		}
-		b.WriteString("\n")
 		if m.dailyIdx < len(m.dailyGroups) {
 			g := m.dailyGroups[m.dailyIdx]
-			b.WriteString(appTui.PromptStyle.Render(
+			header.WriteString(appTui.PromptStyle.Render(
 				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))))
-			b.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + "\n")
+			header.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + "\n")
 		}
 
 		cfg := table.Config{
@@ -459,17 +476,16 @@ func (m *Model) View() string {
 				cfg.EditingCell = true
 				cfg.EditView = m.editInput.View()
 			}
-			// line Y = lines so far + table header(1) + selectedRow
-			selectedLineY = countLines(b.String()) + 1 + m.selectedRow
+			selectedLineY = countLines(body.String()) + 1 + m.selectedRow
 		}
-		b.WriteString(table.Render(m.displayed, cfg) + "\n")
+		body.WriteString(table.Render(m.displayed, cfg) + "\n")
 	}
 
 	if m.phase == phaseConfirmDelete {
-		b.WriteString(appTui.DeleteConfirmStyle.Render("Delete this task? (y/n)") + "\n")
+		body.WriteString(appTui.DeleteConfirmStyle.Render("Delete this task? (y/n)") + "\n")
 	}
 
-	output := b.String()
+	bodyStr := body.String()
 
 	// Insert modal right after the selected row
 	if m.phase == phaseEditing && !m.editInline && selectedLineY >= 0 {
@@ -488,7 +504,7 @@ func (m *Model) View() string {
 
 		modal := appTui.ModalStyle.Width(modalW).Render(mb.String())
 
-		lines := strings.Split(output, "\n")
+		lines := strings.Split(bodyStr, "\n")
 		insertAt := selectedLineY + 1
 		if insertAt > len(lines) {
 			insertAt = len(lines)
@@ -498,10 +514,56 @@ func (m *Model) View() string {
 		result = append(result, lines[:insertAt]...)
 		result = append(result, modal)
 		result = append(result, lines[insertAt:]...)
-		output = strings.Join(result, "\n")
+		bodyStr = strings.Join(result, "\n")
 	}
 
-	return output
+	// Calculate viewport height: terminal height - header lines - footer reserve (3 lines in app.go)
+	headerStr := header.String()
+	headerLines := strings.Count(headerStr, "\n") + 1
+	footerReserve := 5 // timer + flash + update + blank line in app.go + scroll hint
+	vpHeight := m.height - headerLines - footerReserve
+	if vpHeight < 5 {
+		vpHeight = 5
+	}
+
+	m.vp.Width = w
+	m.vp.Height = vpHeight
+	m.vp.SetContent(bodyStr)
+
+	// Auto-scroll to keep selected row visible in edit mode
+	if isEdit && m.selectedRow >= 0 {
+		// Estimate the line position of the selected row in the body content
+		if selectedLineY >= 0 && selectedLineY >= m.vp.YOffset+vpHeight {
+			m.vp.SetYOffset(selectedLineY - vpHeight + 2)
+		} else if selectedLineY >= 0 && selectedLineY < m.vp.YOffset {
+			m.vp.SetYOffset(selectedLineY)
+		}
+	}
+
+	// Scroll indicator — only show when content overflows
+	var scrollHint string
+	totalLines := strings.Count(bodyStr, "\n")
+	if totalLines > vpHeight {
+		atTop := m.vp.YOffset == 0
+		atBottom := m.vp.YOffset >= totalLines-vpHeight
+		pct := 0
+		if totalLines-vpHeight > 0 {
+			pct = m.vp.YOffset * 100 / (totalLines - vpHeight)
+		}
+		if atTop {
+			scrollHint = appTui.HintStyle.Render("↓ scroll down")
+		} else if atBottom {
+			scrollHint = appTui.HintStyle.Render("↑ scroll up")
+		} else {
+			scrollHint = appTui.HintStyle.Render(fmt.Sprintf("↑↓ scroll (%d%%)", pct))
+		}
+	}
+
+	out := headerStr + m.vp.View()
+	if scrollHint != "" {
+		out += "\n" + scrollHint
+	}
+	return out
 }
 
 // weekOffsetsWithTasks returns sorted (ascending) list of week offsets that contain tasks.
