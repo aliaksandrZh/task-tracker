@@ -31,10 +31,11 @@ const (
 
 // Model is the summary screen.
 type Model struct {
-	mode       string // "daily" or "weekly"
-	phase      phase
-	dailyIdx   int
-	weekOffset int
+	mode        string // "daily", "weekly", or "monthly"
+	phase       phase
+	dailyIdx    int
+	weekOffset  int
+	monthOffset int
 
 	sortBy  string
 	sortDir string
@@ -52,7 +53,8 @@ type Model struct {
 	indexedAll   []model.IndexedTask
 	dailyGroups  []timeutil.DateGroup
 	displayed    []model.IndexedTask
-	weeklyGroups []timeutil.DateGroup // day groups within current week
+	weeklyGroups  []timeutil.DateGroup // day groups within current week
+	monthlyGroups []timeutil.DateGroup // day groups within current month
 
 	width  int
 	height int
@@ -111,16 +113,23 @@ func (m *Model) ensureTodayGroup() {
 }
 
 func (m *Model) refreshDisplayed() {
-	if m.mode == "weekly" {
+	if m.mode == "monthly" {
+		result := timeutil.FilterMonthByOffset(m.indexedAll, m.monthOffset)
+		m.monthlyGroups = timeutil.GroupByDate(result.Tasks)
+		m.displayed = nil
+		for _, g := range m.monthlyGroups {
+			m.displayed = append(m.displayed, timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)...)
+		}
+	} else if m.mode == "weekly" {
 		result := timeutil.FilterWeekByOffset(m.indexedAll, m.weekOffset)
 		m.weeklyGroups = timeutil.GroupByDate(result.Tasks)
-		// Build flat displayed list: each day group sorted independently
 		m.displayed = nil
 		for _, g := range m.weeklyGroups {
 			m.displayed = append(m.displayed, timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)...)
 		}
 	} else {
 		m.weeklyGroups = nil
+		m.monthlyGroups = nil
 		var raw []model.IndexedTask
 		if m.dailyIdx < len(m.dailyGroups) {
 			raw = m.dailyGroups[m.dailyIdx].Tasks
@@ -208,6 +217,9 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 				m.weekOffset = next
 				m.refreshDisplayed()
 			}
+		} else if m.mode == "monthly" {
+			m.monthOffset--
+			m.refreshDisplayed()
 		}
 	case "right":
 		if m.mode == "daily" && m.dailyIdx > 0 {
@@ -219,6 +231,9 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 				m.weekOffset = next
 				m.refreshDisplayed()
 			}
+		} else if m.mode == "monthly" && m.monthOffset < 0 {
+			m.monthOffset++
+			m.refreshDisplayed()
 		}
 	case "d":
 		if m.mode != "daily" {
@@ -228,6 +243,12 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	case "w":
 		if m.mode != "weekly" {
 			m.mode = "weekly"
+			m.refreshDisplayed()
+		}
+	case "m":
+		if m.mode != "monthly" {
+			m.mode = "monthly"
+			m.monthOffset = 0
 			m.refreshDisplayed()
 		}
 	case "s":
@@ -396,7 +417,7 @@ func (m *Model) View() string {
 	if m.sortBy != "" {
 		sortHint = m.sortBy + " " + m.sortDir
 	}
-	viewHint := fmt.Sprintf("[a]dd [e]dit %s | [d]aily [w]eekly | ← → nav | [s]ort(%s) [q]uit", m.timerHint(), sortHint)
+	viewHint := fmt.Sprintf("[a]dd [e]dit %s | [d]aily [w]eekly [m]onthly | ← → nav | [s]ort(%s) [q]uit", m.timerHint(), sortHint)
 	editHint := fmt.Sprintf("↑↓ row  ←→ col | Enter=edit [x]=delete | [s]ort(%s) [S]=flip | [e]/Esc=back", sortHint)
 
 	w := m.width
@@ -404,7 +425,48 @@ func (m *Model) View() string {
 		w = 80
 	}
 
-	if m.mode == "weekly" {
+	if m.mode == "monthly" {
+		result := timeutil.FilterMonthByOffset(m.indexedAll, m.monthOffset)
+		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Monthly Summary%s", editLabel)) + "\n")
+		if isEdit {
+			header.WriteString(appTui.HintStyle.Render(editHint) + "\n")
+		} else {
+			header.WriteString(appTui.HintStyle.Render(viewHint) + "\n")
+		}
+		header.WriteString(appTui.PromptStyle.Render(
+			fmt.Sprintf("%s — %.1fh total (%d tasks)", result.Label, result.Total, len(result.Tasks))) + "\n")
+
+		// Render day-by-day sections
+		rowOffset := 0
+		for _, g := range m.monthlyGroups {
+			body.WriteString("\n")
+			body.WriteString(appTui.PromptStyle.Render(
+				fmt.Sprintf("%s — %.1fh total (%d tasks)", g.Key, g.Total, len(g.Tasks))))
+			body.WriteString(" " + appTui.RemainingLabel(g.Total, 8) + " " + appTui.ProgressBar(g.Total, 8, 10) + "\n")
+
+			sorted := timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)
+			cfg := table.Config{
+				Width:       w,
+				SortBy:      m.sortBy,
+				SortDir:     m.sortDir,
+				SelectedRow: -1,
+				SelectedCol: m.selectedCol,
+			}
+			if isEdit {
+				localRow := m.selectedRow - rowOffset
+				if localRow >= 0 && localRow < len(sorted) {
+					cfg.SelectedRow = localRow
+					if m.phase == phaseEditing && m.editInline {
+						cfg.EditingCell = true
+						cfg.EditView = m.editInput.View()
+					}
+					selectedLineY = countLines(body.String()) + 1 + localRow
+				}
+			}
+			body.WriteString(table.Render(sorted, cfg) + "\n")
+			rowOffset += len(g.Tasks)
+		}
+	} else if m.mode == "weekly" {
 		result := timeutil.FilterWeekByOffset(m.indexedAll, m.weekOffset)
 		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Weekly Summary%s", editLabel)) + "\n")
 		if isEdit {

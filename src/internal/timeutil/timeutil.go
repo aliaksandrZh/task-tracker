@@ -216,3 +216,35 @@ func FilterWeekByOffset(tasks []model.IndexedTask, offset int) WeekResult {
 	label := fmt.Sprintf("%s – %s", FormatDateShort(monday), FormatDateShort(sunday))
 	return WeekResult{Label: label, Tasks: filtered, Total: total}
 }
+
+// MonthResult holds filtered tasks for a month period.
+type MonthResult struct {
+	Label string
+	Tasks []model.IndexedTask
+	Total float64
+}
+
+// FilterMonthByOffset filters tasks by month offset (0 = current month, -1 = previous).
+func FilterMonthByOffset(tasks []model.IndexedTask, offset int) MonthResult {
+	now := time.Now()
+	ref := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, offset, 0)
+	first := time.Date(ref.Year(), ref.Month(), 1, 0, 0, 0, 0, ref.Location())
+	last := first.AddDate(0, 1, -1)
+	last = time.Date(last.Year(), last.Month(), last.Day(), 23, 59, 59, 999999999, last.Location())
+
+	var filtered []model.IndexedTask
+	for _, t := range tasks {
+		d, ok := ParseDate(t.Date)
+		if ok && !d.Before(first) && !d.After(last) {
+			filtered = append(filtered, t)
+		}
+	}
+
+	var total float64
+	for _, t := range filtered {
+		total += ParseTime(t.TimeSpent)
+	}
+
+	label := ref.Format("January 2006")
+	return MonthResult{Label: label, Tasks: filtered, Total: total}
+}
