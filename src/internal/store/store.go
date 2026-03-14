@@ -36,9 +36,18 @@ type CSVStore struct {
 	Path string
 }
 
-// New creates a CSVStore at the default location (tasks.csv in cwd).
+// DataDir returns the directory for data files.
+// Uses WORKLOG_DIR env var if set, otherwise the current directory.
+func DataDir() string {
+	if dir := os.Getenv("WORKLOG_DIR"); dir != "" {
+		return dir
+	}
+	return "."
+}
+
+// New creates a CSVStore at the default location (tasks.csv in data dir).
 func New() *CSVStore {
-	return &CSVStore{Path: filepath.Join(".", "tasks.csv")}
+	return &CSVStore{Path: filepath.Join(DataDir(), "tasks.csv")}
 }
 
 // NewWithPath creates a CSVStore at the given path.

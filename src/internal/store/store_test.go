@@ -210,6 +210,28 @@ func TestSanitizeOnUpdate(t *testing.T) {
 	}
 }
 
+func TestDataDirDefault(t *testing.T) {
+	os.Unsetenv("WORKLOG_DIR")
+	if dir := DataDir(); dir != "." {
+		t.Errorf("expected '.', got %q", dir)
+	}
+}
+
+func TestDataDirFromEnv(t *testing.T) {
+	t.Setenv("WORKLOG_DIR", "/tmp/myworklog")
+	if dir := DataDir(); dir != "/tmp/myworklog" {
+		t.Errorf("expected '/tmp/myworklog', got %q", dir)
+	}
+}
+
+func TestNewUsesDataDir(t *testing.T) {
+	t.Setenv("WORKLOG_DIR", "/tmp/myworklog")
+	s := New()
+	if s.Path != "/tmp/myworklog/tasks.csv" {
+		t.Errorf("expected '/tmp/myworklog/tasks.csv', got %q", s.Path)
+	}
+}
+
 func TestIsValidDate(t *testing.T) {
 	tests := []struct {
 		input string

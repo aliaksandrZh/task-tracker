@@ -77,9 +77,25 @@ Navigate with arrow keys + Enter, or press shortcut keys:
 
 The running timer is displayed in the header with live elapsed time. Start from the menu (`t`), stop to save the task automatically.
 
+## Custom Data Directory
+
+By default, `tt` stores data (`tasks.csv`, `.timer.json`) in the current directory. To run `tt` from anywhere, set the `WORKLOG_DIR` environment variable:
+
+```bash
+# In ~/.zshrc or ~/.bashrc
+export WORKLOG_DIR="$HOME/worklog"
+alias tt="/usr/local/bin/tt"
+```
+
+Or inline with the alias:
+
+```bash
+alias tt="WORKLOG_DIR=$HOME/worklog /usr/local/bin/tt"
+```
+
 ## Data Storage
 
-Tasks are stored in `tasks.csv` (auto-created on first run) in the current directory.
+Tasks are stored in `tasks.csv` (auto-created on first run) in the data directory (`WORKLOG_DIR` or current directory).
 
 | Column    | Description                    |
 |-----------|--------------------------------|

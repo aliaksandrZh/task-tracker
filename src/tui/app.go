@@ -51,7 +51,7 @@ type App struct {
 // NewApp creates the root app model.
 func NewApp() App {
 	repo := store.New()
-	tmr := timer.New(".")
+	tmr := timer.New(store.DataDir())
 	app := App{
 		screen:      ScreenSummary,
 		repo:        repo,
