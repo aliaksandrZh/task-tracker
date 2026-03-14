@@ -27,6 +27,7 @@ const (
 	phaseSelect
 	phaseEditing
 	phaseConfirmDelete
+	phaseFilter
 )
 
 // Model is the summary screen.
@@ -44,6 +45,9 @@ type Model struct {
 	selectedCol int
 	editInput   textinput.Model
 	editInline  bool // true = edit in cell, false = edit below table
+
+	filterInput textinput.Model
+	filterText  string // active filter (applied when non-empty)
 
 	repo  store.TaskRepository
 	tmr   *timer.Timer
@@ -67,18 +71,24 @@ func New(repo store.TaskRepository, tmr *timer.Timer) *Model {
 	ti.Prompt = ""
 	ti.CharLimit = 200
 
+	fi := textinput.New()
+	fi.Prompt = ""
+	fi.CharLimit = 100
+	fi.Placeholder = "type to filter..."
+
 	p := prefs.New(".")
 	pref := p.Load()
 
 	m := &Model{
-		mode:      "daily",
-		phase:     phaseView,
-		sortBy:    pref.SortBy,
-		sortDir:   pref.SortDir,
-		editInput: ti,
-		repo:      repo,
-		tmr:       tmr,
-		prefs:     p,
+		mode:        "daily",
+		phase:       phaseView,
+		sortBy:      pref.SortBy,
+		sortDir:     pref.SortDir,
+		editInput:   ti,
+		filterInput: fi,
+		repo:        repo,
+		tmr:         tmr,
+		prefs:       p,
 	}
 	if m.sortDir == "" {
 		m.sortDir = "asc"
@@ -117,15 +127,21 @@ func (m *Model) refreshDisplayed() {
 		result := timeutil.FilterMonthByOffset(m.indexedAll, m.monthOffset)
 		m.monthlyGroups = timeutil.GroupByDate(result.Tasks)
 		m.displayed = nil
-		for _, g := range m.monthlyGroups {
-			m.displayed = append(m.displayed, timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)...)
+		for i, g := range m.monthlyGroups {
+			filtered := filterTasks(g.Tasks, m.filterText)
+			m.monthlyGroups[i].Tasks = filtered
+			m.monthlyGroups[i].Total = sumHours(filtered)
+			m.displayed = append(m.displayed, timeutil.SortTasks(filtered, m.sortBy, m.sortDir)...)
 		}
 	} else if m.mode == "weekly" {
 		result := timeutil.FilterWeekByOffset(m.indexedAll, m.weekOffset)
 		m.weeklyGroups = timeutil.GroupByDate(result.Tasks)
 		m.displayed = nil
-		for _, g := range m.weeklyGroups {
-			m.displayed = append(m.displayed, timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)...)
+		for i, g := range m.weeklyGroups {
+			filtered := filterTasks(g.Tasks, m.filterText)
+			m.weeklyGroups[i].Tasks = filtered
+			m.weeklyGroups[i].Total = sumHours(filtered)
+			m.displayed = append(m.displayed, timeutil.SortTasks(filtered, m.sortBy, m.sortDir)...)
 		}
 	} else {
 		m.weeklyGroups = nil
@@ -134,7 +150,7 @@ func (m *Model) refreshDisplayed() {
 		if m.dailyIdx < len(m.dailyGroups) {
 			raw = m.dailyGroups[m.dailyIdx].Tasks
 		}
-		m.displayed = timeutil.SortTasks(raw, m.sortBy, m.sortDir)
+		m.displayed = timeutil.SortTasks(filterTasks(raw, m.filterText), m.sortBy, m.sortDir)
 	}
 }
 
@@ -154,6 +170,8 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch m.phase {
+		case phaseFilter:
+			return m.updateFilter(msg)
 		case phaseEditing:
 			return m.updateEditing(msg)
 		case phaseConfirmDelete:
@@ -172,10 +190,15 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 		}
 	}
 
-	// Forward non-key messages (blink cursor, etc.) to textinput when editing
+	// Forward non-key messages (blink cursor, etc.) to textinput when editing/filtering
 	if m.phase == phaseEditing {
 		var cmd tea.Cmd
 		m.editInput, cmd = m.editInput.Update(msg)
+		return m, cmd
+	}
+	if m.phase == phaseFilter {
+		var cmd tea.Cmd
+		m.filterInput, cmd = m.filterInput.Update(msg)
 		return m, cmd
 	}
 
@@ -251,6 +274,12 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 			m.monthOffset = 0
 			m.refreshDisplayed()
 		}
+	case "f":
+		m.filterInput.SetValue(m.filterText)
+		m.filterInput.SetCursor(len(m.filterText))
+		m.filterInput.Focus()
+		m.phase = phaseFilter
+		return m, textinput.Blink
 	case "s":
 		idx := indexOf(sortColumns, m.sortBy)
 		m.sortBy = sortColumns[(idx+1)%len(sortColumns)]
@@ -366,6 +395,33 @@ func (m *Model) updateEditing(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *Model) updateFilter(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		if m.filterInput.Value() != "" {
+			// First Esc: clear the filter text
+			m.filterInput.SetValue("")
+			m.filterText = ""
+			m.refreshDisplayed()
+			return m, nil
+		}
+		// Second Esc (already empty): close filter mode
+		m.phase = phaseView
+		return m, nil
+	case tea.KeyEnter:
+		m.filterText = m.filterInput.Value()
+		m.phase = phaseView
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.filterInput, cmd = m.filterInput.Update(msg)
+	// Live filter as user types
+	m.filterText = m.filterInput.Value()
+	m.refreshDisplayed()
+	return m, cmd
+}
+
 func (m *Model) updateConfirmDelete(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
@@ -407,7 +463,7 @@ func (m *Model) View() string {
 	var body strings.Builder
 	selectedLineY := -1 // track Y position of the selected row in body
 
-	isEdit := m.phase != phaseView
+	isEdit := m.phase != phaseView && m.phase != phaseFilter
 	editLabel := ""
 	if isEdit {
 		editLabel = " (EDIT)"
@@ -417,8 +473,16 @@ func (m *Model) View() string {
 	if m.sortBy != "" {
 		sortHint = m.sortBy + " " + m.sortDir
 	}
-	viewHint := fmt.Sprintf("[a]dd [e]dit %s | [d]aily [w]eekly [m]onthly | ← → nav | [s]ort(%s) [q]uit", m.timerHint(), sortHint)
+	viewHint := fmt.Sprintf("[a]dd [e]dit %s | [d]aily [w]eekly [m]onthly | ← → nav | [f]ilter [s]ort(%s) [q]uit", m.timerHint(), sortHint)
 	editHint := fmt.Sprintf("↑↓ row  ←→ col | Enter=edit [x]=delete | [s]ort(%s) [S]=flip | [e]/Esc=back", sortHint)
+	var hintLine string
+	if m.phase == phaseFilter {
+		hintLine = "Enter=keep filter | Esc=clear, Esc again=close"
+	} else if isEdit {
+		hintLine = editHint
+	} else {
+		hintLine = viewHint
+	}
 
 	w := m.width
 	if w <= 0 {
@@ -428,11 +492,7 @@ func (m *Model) View() string {
 	if m.mode == "monthly" {
 		result := timeutil.FilterMonthByOffset(m.indexedAll, m.monthOffset)
 		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Monthly Summary%s", editLabel)) + "\n")
-		if isEdit {
-			header.WriteString(appTui.HintStyle.Render(editHint) + "\n")
-		} else {
-			header.WriteString(appTui.HintStyle.Render(viewHint) + "\n")
-		}
+		header.WriteString(appTui.HintStyle.Render(hintLine) + "\n")
 		header.WriteString(appTui.PromptStyle.Render(
 			fmt.Sprintf("%s — %.1fh total (%d tasks)", result.Label, result.Total, len(result.Tasks))) + "\n")
 
@@ -473,11 +533,7 @@ func (m *Model) View() string {
 	} else if m.mode == "weekly" {
 		result := timeutil.FilterWeekByOffset(m.indexedAll, m.weekOffset)
 		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Weekly Summary%s", editLabel)) + "\n")
-		if isEdit {
-			header.WriteString(appTui.HintStyle.Render(editHint) + "\n")
-		} else {
-			header.WriteString(appTui.HintStyle.Render(viewHint) + "\n")
-		}
+		header.WriteString(appTui.HintStyle.Render(hintLine) + "\n")
 		header.WriteString(appTui.PromptStyle.Render(
 			fmt.Sprintf("%s — %.1fh total (%d tasks)", result.Label, result.Total, len(result.Tasks))) + "\n")
 
@@ -521,11 +577,7 @@ func (m *Model) View() string {
 			dateLabel = " — " + m.dailyGroups[m.dailyIdx].Key
 		}
 		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Daily Summary%s%s", editLabel, dateLabel)) + "\n")
-		if isEdit {
-			header.WriteString(appTui.HintStyle.Render(editHint) + "\n")
-		} else {
-			header.WriteString(appTui.HintStyle.Render(viewHint) + "\n")
-		}
+		header.WriteString(appTui.HintStyle.Render(hintLine) + "\n")
 		if m.dailyIdx < len(m.dailyGroups) {
 			g := m.dailyGroups[m.dailyIdx]
 			header.WriteString(appTui.PromptStyle.Render(
@@ -589,6 +641,11 @@ func (m *Model) View() string {
 	}
 
 	// Calculate viewport height: terminal height - header lines - footer reserve (3 lines in app.go)
+	if m.phase == phaseFilter {
+		header.WriteString(appTui.PromptStyle.Render("Filter: ") + m.filterInput.View() + "\n")
+	} else if m.filterText != "" {
+		header.WriteString(appTui.HintStyle.Render(fmt.Sprintf("filter: %q  [f] to edit", m.filterText)) + "\n")
+	}
 	headerStr := header.String()
 	headerLines := strings.Count(headerStr, "\n") + 1
 	footerReserve := 5 // timer + flash + update + blank line in app.go + scroll hint
@@ -703,6 +760,34 @@ func getField(t model.Task, col string) string {
 		return t.Comments
 	}
 	return ""
+}
+
+func sumHours(tasks []model.IndexedTask) float64 {
+	var total float64
+	for _, t := range tasks {
+		total += timeutil.ParseTime(t.TimeSpent)
+	}
+	return total
+}
+
+// filterTasks returns tasks where any field contains the filter text (case-insensitive).
+func filterTasks(tasks []model.IndexedTask, text string) []model.IndexedTask {
+	if text == "" {
+		return tasks
+	}
+	lower := strings.ToLower(text)
+	var out []model.IndexedTask
+	for _, t := range tasks {
+		if strings.Contains(strings.ToLower(t.Date), lower) ||
+			strings.Contains(strings.ToLower(t.Type), lower) ||
+			strings.Contains(strings.ToLower(t.Number), lower) ||
+			strings.Contains(strings.ToLower(t.Name), lower) ||
+			strings.Contains(strings.ToLower(t.TimeSpent), lower) ||
+			strings.Contains(strings.ToLower(t.Comments), lower) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func indexOf(slice []string, val string) int {
