@@ -20,8 +20,9 @@ type Config struct {
 	SortDir     string
 	SelectedRow int // -1 = no selection
 	SelectedCol int
-	EditingCell bool   // true when a cell is being edited inline
-	EditView    string // rendered textinput View() for inline editing
+	EditingCell    bool   // true when a cell is being edited inline
+	EditView       string // rendered textinput View() for inline editing
+	ConfirmDeleteRow int  // row index pending delete confirmation, -1 = none
 }
 
 func colWidths(width int) (nameW, commentsW int) {
@@ -128,14 +129,23 @@ func Render(tasks []model.IndexedTask, cfg Config) string {
 				continue
 			}
 
+			isDeleteRow := i == cfg.ConfirmDeleteRow
+
+			// For delete confirmation, replace last column with prompt
+			if isDeleteRow && ci == len(Columns)-1 {
+				val = "Delete? (y/n)"
+			}
+
 			padded := format.Pad(val, cw)
 
 			// Apply styling
 			style := lipgloss.NewStyle()
-			if col == "type" {
+			if isDeleteRow {
+				style = tui.DeleteRowStyle
+			} else if col == "type" {
 				style = style.Foreground(tui.TypeColor(val))
 			}
-			if isSelected && ci == cfg.SelectedCol {
+			if isSelected && ci == cfg.SelectedCol && !isDeleteRow {
 				style = style.Reverse(true).Bold(true)
 			}
 

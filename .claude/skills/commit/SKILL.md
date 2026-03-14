@@ -1,7 +1,6 @@
 ---
 name: commit
 description: Create a git commit following the project's commit message style
-disable-model-invocation: true
 allowed-tools: Bash(git *)
 ---
 

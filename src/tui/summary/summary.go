@@ -446,11 +446,12 @@ func (m *Model) View() string {
 
 			sorted := timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)
 			cfg := table.Config{
-				Width:       w,
-				SortBy:      m.sortBy,
-				SortDir:     m.sortDir,
-				SelectedRow: -1,
-				SelectedCol: m.selectedCol,
+				Width:            w,
+				SortBy:           m.sortBy,
+				SortDir:          m.sortDir,
+				SelectedRow:      -1,
+				SelectedCol:      m.selectedCol,
+				ConfirmDeleteRow: -1,
 			}
 			if isEdit {
 				localRow := m.selectedRow - rowOffset
@@ -459,6 +460,9 @@ func (m *Model) View() string {
 					if m.phase == phaseEditing && m.editInline {
 						cfg.EditingCell = true
 						cfg.EditView = m.editInput.View()
+					}
+					if m.phase == phaseConfirmDelete {
+						cfg.ConfirmDeleteRow = localRow
 					}
 					selectedLineY = countLines(body.String()) + 1 + localRow
 				}
@@ -487,11 +491,12 @@ func (m *Model) View() string {
 
 			sorted := timeutil.SortTasks(g.Tasks, m.sortBy, m.sortDir)
 			cfg := table.Config{
-				Width:       w,
-				SortBy:      m.sortBy,
-				SortDir:     m.sortDir,
-				SelectedRow: -1,
-				SelectedCol: m.selectedCol,
+				Width:            w,
+				SortBy:           m.sortBy,
+				SortDir:          m.sortDir,
+				SelectedRow:      -1,
+				SelectedCol:      m.selectedCol,
+				ConfirmDeleteRow: -1,
 			}
 			if isEdit {
 				localRow := m.selectedRow - rowOffset
@@ -500,6 +505,9 @@ func (m *Model) View() string {
 					if m.phase == phaseEditing && m.editInline {
 						cfg.EditingCell = true
 						cfg.EditView = m.editInput.View()
+					}
+					if m.phase == phaseConfirmDelete {
+						cfg.ConfirmDeleteRow = localRow
 					}
 					selectedLineY = countLines(body.String()) + 1 + localRow
 				}
@@ -526,11 +534,12 @@ func (m *Model) View() string {
 		}
 
 		cfg := table.Config{
-			Width:       w,
-			SortBy:      m.sortBy,
-			SortDir:     m.sortDir,
-			SelectedRow: -1,
-			SelectedCol: m.selectedCol,
+			Width:            w,
+			SortBy:           m.sortBy,
+			SortDir:          m.sortDir,
+			SelectedRow:      -1,
+			SelectedCol:      m.selectedCol,
+			ConfirmDeleteRow: -1,
 		}
 		if isEdit {
 			cfg.SelectedRow = m.selectedRow
@@ -538,14 +547,14 @@ func (m *Model) View() string {
 				cfg.EditingCell = true
 				cfg.EditView = m.editInput.View()
 			}
+			if m.phase == phaseConfirmDelete {
+				cfg.ConfirmDeleteRow = m.selectedRow
+			}
 			selectedLineY = countLines(body.String()) + 1 + m.selectedRow
 		}
 		body.WriteString(table.Render(m.displayed, cfg) + "\n")
 	}
 
-	if m.phase == phaseConfirmDelete {
-		body.WriteString(appTui.DeleteConfirmStyle.Render("Delete this task? (y/n)") + "\n")
-	}
 
 	bodyStr := body.String()
 

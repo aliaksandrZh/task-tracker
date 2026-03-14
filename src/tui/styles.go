@@ -64,6 +64,12 @@ var (
 				Bold(true).
 				Foreground(lipgloss.Color("1"))
 
+	// Row pending deletion (red background)
+	DeleteRowStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("52")).
+			Foreground(lipgloss.Color("15")).
+			Bold(true)
+
 	// Prompt label
 	PromptStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("3"))
