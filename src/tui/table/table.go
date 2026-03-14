@@ -95,9 +95,9 @@ func Render(tasks []model.IndexedTask, cfg Config) string {
 	}
 	nameW, commentsW := colWidths(w)
 
-	indicator := "▲"
+	activeArrow := "▲"
 	if cfg.SortDir == "desc" {
-		indicator = "▼"
+		activeArrow = "▼"
 	}
 
 	// Build header
@@ -106,7 +106,7 @@ func Render(tasks []model.IndexedTask, cfg Config) string {
 		cw := getColWidth(col, nameW, commentsW)
 		label := HeaderLabel(col)
 		if cfg.SortBy == col {
-			label += indicator
+			label += " " + activeArrow
 		}
 		headerParts = append(headerParts, format.Pad(label, cw))
 	}
@@ -158,21 +158,26 @@ func Render(tasks []model.IndexedTask, cfg Config) string {
 	return header + "\n" + strings.Join(rows, "\n")
 }
 
+// sortableColumns lists columns that support sorting.
+var sortableColumns = map[string]bool{
+	"date": true, "type": true, "number": true, "name": true, "timeSpent": true,
+}
+
 // HeaderLabel returns the display label for a column.
 func HeaderLabel(col string) string {
 	switch col {
 	case "date":
-		return "Date"
+		return "DATE"
 	case "type":
-		return "Type"
+		return "TYPE"
 	case "number":
-		return "Number"
+		return "NUMBER"
 	case "name":
-		return "Name"
+		return "NAME"
 	case "timeSpent":
-		return "Time"
+		return "TIME"
 	case "comments":
-		return "Comments"
+		return "COMMENTS"
 	}
 	return col
 }

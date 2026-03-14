@@ -52,7 +52,8 @@ var (
 	// Table header
 	TableHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
-				Foreground(lipgloss.Color("6"))
+				Foreground(lipgloss.Color("6")).
+			Background(lipgloss.Color("236"))
 
 	// Active editing cell (deep blue background)
 	EditingCellStyle = lipgloss.NewStyle().
