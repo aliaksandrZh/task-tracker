@@ -123,7 +123,7 @@ func Render(tasks []model.IndexedTask, cfg Config) string {
 
 			// Inline editing: render textinput in a fixed-width box to prevent column shift
 			if isSelected && cfg.EditingCell && ci == cfg.SelectedCol {
-				fixed := lipgloss.NewStyle().Width(cw).MaxWidth(cw).Render(cfg.EditView)
+				fixed := tui.EditingCellStyle.Width(cw).MaxWidth(cw).Render(cfg.EditView)
 				cellParts = append(cellParts, fixed)
 				continue
 			}

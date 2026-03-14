@@ -54,6 +54,11 @@ var (
 				Bold(true).
 				Foreground(lipgloss.Color("6"))
 
+	// Active editing cell (deep blue background)
+	EditingCellStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("17")).
+			Foreground(lipgloss.Color("15")) // white on deep blue
+
 	// Confirm delete
 	DeleteConfirmStyle = lipgloss.NewStyle().
 				Bold(true).
