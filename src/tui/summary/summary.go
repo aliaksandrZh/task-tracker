@@ -241,8 +241,11 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 				m.refreshDisplayed()
 			}
 		} else if m.mode == "monthly" {
-			m.monthOffset--
-			m.refreshDisplayed()
+			next := m.adjacentMonthOffset(-1)
+			if next != m.monthOffset {
+				m.monthOffset = next
+				m.refreshDisplayed()
+			}
 		}
 	case "right":
 		if m.mode == "daily" && m.dailyIdx > 0 {
@@ -254,9 +257,12 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 				m.weekOffset = next
 				m.refreshDisplayed()
 			}
-		} else if m.mode == "monthly" && m.monthOffset < 0 {
-			m.monthOffset++
-			m.refreshDisplayed()
+		} else if m.mode == "monthly" {
+			next := m.adjacentMonthOffset(1)
+			if next != m.monthOffset {
+				m.monthOffset = next
+				m.refreshDisplayed()
+			}
 		}
 	case "d":
 		if m.mode != "daily" {
@@ -742,6 +748,52 @@ func (m *Model) adjacentWeekOffset(direction int) int {
 		}
 	}
 	return m.weekOffset
+}
+
+// monthOffsetsWithTasks returns sorted (ascending) list of month offsets that contain tasks.
+func (m *Model) monthOffsetsWithTasks() []int {
+	if len(m.indexedAll) == 0 {
+		return nil
+	}
+	now := time.Now()
+	nowYear, nowMonth := now.Year(), now.Month()
+	seen := map[int]bool{}
+	for _, t := range m.indexedAll {
+		d, ok := timeutil.ParseDate(t.Date)
+		if !ok {
+			continue
+		}
+		offset := (d.Year()-nowYear)*12 + int(d.Month()-nowMonth)
+		seen[offset] = true
+	}
+	offsets := make([]int, 0, len(seen))
+	for o := range seen {
+		offsets = append(offsets, o)
+	}
+	sort.Ints(offsets)
+	return offsets
+}
+
+// adjacentMonthOffset finds the next month offset with tasks in the given direction (-1 or +1).
+func (m *Model) adjacentMonthOffset(direction int) int {
+	offsets := m.monthOffsetsWithTasks()
+	if len(offsets) == 0 {
+		return m.monthOffset
+	}
+	if direction < 0 {
+		for i := len(offsets) - 1; i >= 0; i-- {
+			if offsets[i] < m.monthOffset {
+				return offsets[i]
+			}
+		}
+	} else {
+		for _, o := range offsets {
+			if o > m.monthOffset {
+				return o
+			}
+		}
+	}
+	return m.monthOffset
 }
 
 func getField(t model.Task, col string) string {
