@@ -51,8 +51,7 @@ type Model struct {
 	editInput   textinput.Model
 	editInline  bool // true = edit in cell, false = edit below table
 
-	filterInput textinput.Model
-	filterText  string // active filter (applied when non-empty)
+	filterText string // active filter (applied when non-empty)
 
 	inputBar     inputbar.Model
 	addParsed    []model.ParsedTask
@@ -83,11 +82,6 @@ func New(repo store.TaskRepository, tmr *timer.Timer) *Model {
 	ti.Prompt = ""
 	ti.CharLimit = 200
 
-	fi := textinput.New()
-	fi.Prompt = ""
-	fi.CharLimit = 100
-	fi.Placeholder = "type to filter..."
-
 	p := prefs.New(".")
 	pref := p.Load()
 
@@ -96,9 +90,8 @@ func New(repo store.TaskRepository, tmr *timer.Timer) *Model {
 		phase:       phaseView,
 		sortBy:      pref.SortBy,
 		sortDir:     pref.SortDir,
-		editInput:   ti,
-		filterInput: fi,
-		inputBar:    inputbar.New(),
+		editInput: ti,
+		inputBar:  inputbar.New(),
 		repo:        repo,
 		tmr:         tmr,
 		prefs:       p,
@@ -1063,10 +1056,6 @@ func indexOf(slice []string, val string) int {
 		}
 	}
 	return 0
-}
-
-func navigate(screen appTui.Screen) tea.Cmd {
-	return func() tea.Msg { return appTui.NavigateMsg{Screen: screen} }
 }
 
 func stopTimer() tea.Cmd {

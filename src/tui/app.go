@@ -37,9 +37,7 @@ var ScreenFactory func(screen Screen, repo store.TaskRepository, tmr *timer.Time
 
 // App is the root Bubble Tea model.
 type App struct {
-	screen        Screen
-	activeModel   ScreenModel // current sub-screen (add, paste, timerstart) or nil
-	homeModel     ScreenModel // the summary screen (always alive)
+	homeModel     ScreenModel
 	flash         string
 	timerInfo     *timer.TimerStatus
 	updateCount   int
@@ -53,9 +51,8 @@ func NewApp() App {
 	repo := store.New()
 	tmr := timer.New(store.DataDir())
 	app := App{
-		screen:      ScreenSummary,
-		repo:        repo,
-		tmr:         tmr,
+		repo: repo,
+		tmr:  tmr,
 	}
 	if ScreenFactory != nil {
 		app.homeModel = ScreenFactory(ScreenSummary, repo, tmr)
@@ -81,35 +78,25 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		a.width = msg.Width
 		a.height = msg.Height
-		// Forward to active sub-screen or home
-		target := a.currentModel()
-		if target != nil {
-			newModel, cmd := target.Update(msg)
-			a.setCurrentModel(newModel)
+		if a.homeModel != nil {
+			newModel, cmd := a.homeModel.Update(msg)
+			a.homeModel = newModel
 			return a, cmd
 		}
 
 	case tea.KeyMsg:
 		// Handle update shortcut at app level before forwarding
-		if msg.String() == "u" && a.updateCount > 0 && a.activeModel == nil {
+		if msg.String() == "u" && a.updateCount > 0 {
 			cmd := "git pull && go build -o tt ."
 			copyToClipboard(cmd)
 			a.flash = "Copied to clipboard: " + cmd
 			return a, a.clearFlashAfter(flashUpdateDuration)
 		}
-		target := a.currentModel()
-		if target != nil {
-			newModel, cmd := target.Update(msg)
-			a.setCurrentModel(newModel)
+		if a.homeModel != nil {
+			newModel, cmd := a.homeModel.Update(msg)
+			a.homeModel = newModel
 			return a, cmd
 		}
-
-	case NavigateMsg:
-		return a.navigate(msg.Screen)
-
-	case DoneMsg:
-		// Return to summary (home)
-		return a.returnHome()
 
 	case StopTimerMsg:
 		return a.stopTimer()
@@ -129,10 +116,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.updateCount = msg.Count
 
 	default:
-		target := a.currentModel()
-		if target != nil {
-			newModel, cmd := target.Update(msg)
-			a.setCurrentModel(newModel)
+		if a.homeModel != nil {
+			newModel, cmd := a.homeModel.Update(msg)
+			a.homeModel = newModel
 			return a, cmd
 		}
 	}
@@ -140,33 +126,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, nil
 }
 
-// currentModel returns the active sub-screen, or the home model if on summary.
-func (a *App) currentModel() ScreenModel {
-	if a.activeModel != nil {
-		return a.activeModel
-	}
-	return a.homeModel
-}
-
-// setCurrentModel updates the active sub-screen or home model.
-func (a *App) setCurrentModel(m ScreenModel) {
-	if a.activeModel != nil {
-		a.activeModel = m
-	} else {
-		a.homeModel = m
-	}
-}
-
 func (a App) View() string {
-	target := a.currentModel()
-
-	// Pass notification data to screens that support it
-	if nr, ok := target.(NotificationReceiver); ok {
+	// Pass notification data to the screen
+	if nr, ok := a.homeModel.(NotificationReceiver); ok {
 		nr.SetNotifications(a.buildNotifications())
 	}
 
-	if target != nil {
-		return target.View()
+	if a.homeModel != nil {
+		return a.homeModel.View()
 	}
 	return ""
 }
@@ -194,48 +161,6 @@ func (a App) buildNotifications() Notifications {
 	}
 
 	return n
-}
-
-func (a App) navigate(screen Screen) (tea.Model, tea.Cmd) {
-	a.timerInfo = a.tmr.GetStatus()
-
-	if screen == ScreenSummary {
-		return a.returnHome()
-	}
-
-	a.screen = screen
-	if ScreenFactory != nil {
-		a.activeModel = ScreenFactory(screen, a.repo, a.tmr)
-		if a.activeModel != nil {
-			cmd := a.activeModel.Init()
-			newModel, sizeCmd := a.activeModel.Update(tea.WindowSizeMsg{
-				Width: a.width, Height: a.height,
-			})
-			a.activeModel = newModel
-			return a, tea.Batch(cmd, sizeCmd)
-		}
-	}
-	return a, nil
-}
-
-func (a App) returnHome() (tea.Model, tea.Cmd) {
-	a.screen = ScreenSummary
-	a.activeModel = nil
-	a.timerInfo = a.tmr.GetStatus()
-
-	// Reload summary data to pick up any changes from sub-screens
-	if r, ok := a.homeModel.(Reloadable); ok {
-		r.Reload()
-	}
-	// Forward current window size
-	if a.homeModel != nil {
-		newModel, cmd := a.homeModel.Update(tea.WindowSizeMsg{
-			Width: a.width, Height: a.height,
-		})
-		a.homeModel = newModel
-		return a, cmd
-	}
-	return a, nil
 }
 
 func (a App) stopTimer() (tea.Model, tea.Cmd) {

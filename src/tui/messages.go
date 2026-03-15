@@ -4,20 +4,8 @@ package tui
 type Screen int
 
 const (
-	ScreenMenu Screen = iota
-	ScreenAdd
-	ScreenPaste
-	ScreenSummary
-	ScreenTimerStart
+	ScreenSummary Screen = iota
 )
-
-// NavigateMsg requests a screen transition.
-type NavigateMsg struct {
-	Screen Screen
-}
-
-// DoneMsg signals a sub-screen is finished and wants to return to menu.
-type DoneMsg struct{}
 
 // FlashMsg displays a temporary message.
 type FlashMsg struct {
