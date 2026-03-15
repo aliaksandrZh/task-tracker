@@ -218,8 +218,13 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 		return m, cmd
 	}
 	if m.phase == phaseEditing {
+		if m.editInline {
+			var cmd tea.Cmd
+			m.editInput, cmd = m.editInput.Update(msg)
+			return m, cmd
+		}
 		var cmd tea.Cmd
-		m.editInput, cmd = m.editInput.Update(msg)
+		m.inputBar, cmd = m.inputBar.Update(msg)
 		return m, cmd
 	}
 	if m.phase == phaseFilter {
@@ -371,24 +376,23 @@ func (m *Model) updateSelect(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 			val := getField(m.displayed[m.selectedRow].Task, col)
 			colW := table.ColWidth(col, m.width)
 
-			m.editInput.SetValue(val)
-			m.editInput.SetCursor(len(val))
-
-			// If value fits in column, edit inline; otherwise show modal
+			// If value fits in column, edit inline; otherwise use bottom input bar
 			if len([]rune(val)) < colW-1 {
 				m.editInline = true
+				m.editInput.SetValue(val)
+				m.editInput.SetCursor(len(val))
 				m.editInput.Width = colW
+				m.editInput.Focus()
 			} else {
 				m.editInline = false
-				// Modal inner width: terminal - 4 (outer margin) - 6 (border + padding)
-				modalInner := m.width - 10
-				if modalInner < 30 {
-					modalInner = 30
-				}
-				m.editInput.Width = modalInner
+				label := table.HeaderLabel(col)
+				m.inputBar.SetWidth(m.width)
+				m.inputBar.ActivateWithValue(inputbar.Config{
+					Placeholder: label,
+					Hints:       fmt.Sprintf("Edit %s  Enter=save  Escape=cancel", label),
+				}, val)
 			}
 
-			m.editInput.Focus()
 			m.phase = phaseEditing
 			return m, textinput.Blink
 		}
@@ -416,20 +420,35 @@ func (m *Model) updateSelect(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 func (m *Model) updateEditing(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
+		if !m.editInline {
+			m.inputBar.Deactivate()
+		}
 		m.phase = phaseSelect
 		return m, nil
 	case tea.KeyEnter:
 		task := m.displayed[m.selectedRow]
 		col := table.Columns[m.selectedCol]
-		_ = m.repo.UpdateTask(task.Index, map[string]string{col: m.editInput.Value()})
+		var val string
+		if m.editInline {
+			val = m.editInput.Value()
+		} else {
+			val = m.inputBar.Value()
+			m.inputBar.Deactivate()
+		}
+		_ = m.repo.UpdateTask(task.Index, map[string]string{col: val})
 		m.reload()
 		m.phase = phaseSelect
 		return m, flash(fmt.Sprintf("Updated %s.", col))
 	}
 
-	// Forward all other keys to the textinput for typing
+	// Forward all other keys to the active input
+	if m.editInline {
+		var cmd tea.Cmd
+		m.editInput, cmd = m.editInput.Update(msg)
+		return m, cmd
+	}
 	var cmd tea.Cmd
-	m.editInput, cmd = m.editInput.Update(msg)
+	m.inputBar, cmd = m.inputBar.Update(msg)
 	return m, cmd
 }
 
@@ -771,36 +790,6 @@ func (m *Model) View() string {
 
 
 	bodyStr := body.String()
-
-	// Insert modal right after the selected row
-	if m.phase == phaseEditing && !m.editInline && selectedLineY >= 0 {
-		col := table.Columns[m.selectedCol]
-		label := table.HeaderLabel(col)
-
-		modalW := w - 4
-		if modalW < 40 {
-			modalW = 40
-		}
-
-		var mb strings.Builder
-		mb.WriteString(appTui.ModalTitleStyle.Render(fmt.Sprintf("Edit %s", label)) + "\n\n")
-		mb.WriteString(m.editInput.View() + "\n\n")
-		mb.WriteString(appTui.HintStyle.Render("Enter=save | Escape=cancel"))
-
-		modal := appTui.ModalStyle.Width(modalW).Render(mb.String())
-
-		lines := strings.Split(bodyStr, "\n")
-		insertAt := selectedLineY + 1
-		if insertAt > len(lines) {
-			insertAt = len(lines)
-		}
-
-		var result []string
-		result = append(result, lines[:insertAt]...)
-		result = append(result, modal)
-		result = append(result, lines[insertAt:]...)
-		bodyStr = strings.Join(result, "\n")
-	}
 
 	// Calculate viewport height: terminal height - header lines - footer reserve (3 lines in app.go)
 	if m.phase == phaseFilter {
