@@ -340,8 +340,24 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 		}
 		m.prefs.Save(prefs.Prefs{SortDir: m.sortDir})
 		m.refreshDisplayed()
+	default:
+		if cmd := capsLockWarning(msg); cmd != nil {
+			return m, cmd
+		}
 	}
 	return m, nil
+}
+
+// capsLockWarning returns a flash command if the key looks like Caps Lock is on
+// (single uppercase letter that doesn't match any intentional uppercase binding).
+func capsLockWarning(msg tea.KeyMsg) tea.Cmd {
+	s := msg.String()
+	if len(s) == 1 && s[0] >= 'A' && s[0] <= 'Z' {
+		return func() tea.Msg {
+			return appTui.FlashMsg{Text: "Caps Lock may be on — shortcuts are case-sensitive"}
+		}
+	}
+	return nil
 }
 
 func (m *Model) updateSelect(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
