@@ -840,10 +840,8 @@ func (m *Model) View() string {
 	// Calculate viewport height
 	headerStr := header.String()
 	headerLines := strings.Count(headerStr, "\n") + 1
-	footerReserve := 4 // scroll hint + hint line + possible notification + margin
-	if m.inputBar.Active() {
-		footerReserve += m.inputBar.Height()
-	}
+	// Reserve space for: scroll hint (1) + input bar (4) to prevent shift
+	footerReserve := 5
 	vpHeight := m.height - headerLines - footerReserve
 	if vpHeight < 5 {
 		vpHeight = 5
@@ -887,11 +885,13 @@ func (m *Model) View() string {
 		out += "\n" + scrollHint
 	}
 
-	// Show input bar with its own hints, or the base shortcut line — not both
+	// Show input bar with its own hints, or the base shortcut line — not both.
+	// Always occupy the same number of lines (4) to prevent layout shift.
 	if m.inputBar.Active() {
 		out += "\n" + m.inputBar.View()
 	} else {
 		out += "\n" + appTui.HintStyle.Render(hintLine)
+		out += "\n\n\n" // pad to match input bar height
 	}
 
 	// Notification zone: only render lines that have content
