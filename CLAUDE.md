@@ -1,63 +1,67 @@
 # Worklog TUI
 
-A terminal UI app for tracking daily work tasks (bugs, tasks) with time spent. Replaces plain-text tracking with a proper interface supporting paste, summaries, and editing.
+A terminal UI app for tracking daily work tasks (bugs, tasks) with time spent. Built with Go and Bubble Tea.
 
 ## Tech Stack
 
-- **Node.js + Ink 5.x** (React for CLI) with JSX
-- **CSV file** (`tasks.csv`) for storage via `papaparse`
-- **tsx** to run JSX/ESM with zero config
-- All ESM (`"type": "module"` in package.json)
+- **Go 1.25** with Bubble Tea (charmbracelet/bubbletea) for TUI
+- **CSV file** (`tasks.csv`) for storage
+- **Lipgloss** for styling, **Bubbles** for text input/viewport components
 
 ## Commands
 
-- `npm start` — run the app (TUI menu, or pass subcommands)
-- `npm test` — run all tests (uses built-in `node:test`, no extra deps)
-
-### CLI Subcommands
-
-```bash
-tt                              # → TUI menu (no args)
-tt add Bug 12345: Fix login 1h  # → instant add, done
-tt paste                        # → reads clipboard, parses, saves
-tt today                        # → prints today's tasks
-tt week                         # → prints current week's tasks
-tt start Bug 123: Fix login     # → starts timer
-tt stop                         # → stops timer, saves task with elapsed time
-tt status                       # → shows what's being timed
-```
+- `go build -o tt .` — build the binary
+- `go test ./...` — run all tests
+- `./tt` — run the TUI
 
 ## Project Structure
 
 ```
 task-tracker/
+├── main.go                          # Entry point, calls cmd.Execute()
 ├── src/
-│   ├── index.js              # Entry point, renders <App>
-│   ├── app.jsx               # Root component, screen router
-│   ├── store.js              # CSV CRUD (load, save, add, update, delete)
-│   ├── parser.js             # Lenient paste-format parser
-│   ├── utils.js              # Shared utilities (parseTime, parseDate, groupByDate, etc.)
-│   ├── format.js             # Plain-text table formatter (shared by CLI and TaskTable)
-│   ├── timer.js              # Timer persistence (.timer.json) for start/stop/status
-│   ├── cli.js                # CLI router — entry point with subcommands
-│   └── components/
-│       ├── MainMenu.jsx      # Main menu (Add, Paste, Summary, Edit/Delete, Exit)
-│       ├── AddTask.jsx       # Sequential single-task form
-│       ├── PasteTasks.jsx    # Multi-line paste mode with missing field prompts
-│       ├── ViewSummary.jsx   # Daily/weekly summaries with navigation
-│       ├── EditDelete.jsx    # Task list → select to edit or delete
-│       ├── EditForm.jsx      # Pre-populated edit form
-│       └── TaskTable.jsx     # Reusable formatted task table
-├── tests/
-│   ├── patterns.test.js      # Unit tests for each pattern group
-│   ├── parser.test.js        # Integration tests for parsePastedText
-│   ├── store.test.js         # CSV CRUD tests
-│   ├── utils.test.js         # Utility function tests (parseTime, parseDate, groupByDate, etc.)
-│   ├── format.test.js        # Table formatter tests
-│   ├── timer.test.js         # Timer start/stop/status tests
-│   └── cli.test.js           # CLI subcommand integration tests
-├── package.json
-└── .gitignore
+│   ├── cmd/
+│   │   └── root.go                  # CLI entry, launches TUI, registers screen factory
+│   ├── internal/
+│   │   ├── model/
+│   │   │   └── task.go              # Task, IndexedTask, ParsedTask structs + CSV headers
+│   │   ├── store/
+│   │   │   ├── store.go             # CSV CRUD (TaskRepository interface: Load, Add, Update, Delete)
+│   │   │   └── store_test.go
+│   │   ├── parser/
+│   │   │   ├── parser.go            # Lenient paste-format parser with pattern arrays
+│   │   │   └── parser_test.go
+│   │   ├── format/
+│   │   │   ├── format.go            # Column widths, Pad helper for table formatting
+│   │   │   └── format_test.go
+│   │   ├── timeutil/
+│   │   │   ├── timeutil.go          # ParseTime, ParseDate, GroupByDate, GetWeekBounds, etc.
+│   │   │   └── timeutil_test.go
+│   │   ├── timer/
+│   │   │   ├── timer.go             # Timer persistence (.timer.json) for start/stop/status
+│   │   │   └── timer_test.go
+│   │   ├── prefs/
+│   │   │   ├── prefs.go             # User preferences persistence (.prefs.json) for sort settings
+│   │   │   └── prefs_test.go
+│   │   └── update/
+│   │       └── update.go            # Async git fetch to check for updates
+│   └── tui/
+│       ├── app.go                   # Root Bubble Tea model (App), screen routing, flash messages
+│       ├── messages.go              # Shared message types for TUI communication
+│       ├── styles.go                # Shared lipgloss styles (colors, borders)
+│       ├── inputbar/
+│       │   ├── inputbar.go          # Reusable bottom input bar with placeholder and hints
+│       │   └── inputbar_test.go
+│       ├── summary/
+│       │   ├── summary.go           # Summary screen (daily/weekly/monthly view, add, edit, delete, filter, timer)
+│       │   ├── add_test.go
+│       │   └── filter_test.go
+│       └── table/
+│           ├── table.go             # Reusable styled task table with sorting and selection
+│           └── table_test.go
+├── go.mod
+├── go.sum
+└── tasks.csv                        # Data file (auto-created, gitignored)
 ```
 
 ## CSV Format
@@ -68,58 +72,76 @@ Columns: `date,type,number,name,timeSpent,comments`
 
 ## Architecture
 
-### Screen Router (`app.jsx`)
+### App (`src/tui/app.go`)
 
-State-based routing: `screen` state controls which component renders. Components receive `onDone` (go back to menu) and `onMessage` (flash message) callbacks.
+Root Bubble Tea model. Manages screen routing via `ScreenModel` interface, flash messages, timer status display, and update notifications. Uses `ScreenFactory` (set by `cmd/root.go`) to create screen models, avoiding import cycles.
 
-### Parser (`parser.js`)
+### Summary Screen (`src/tui/summary/summary.go`)
+
+The main screen with multiple phases: `view`, `select`, `editing`, `confirmDelete`, `filter`, `adding`, `addFill`, `timerStart`. Supports daily/weekly/monthly views with date navigation, task add/edit/delete, filtering, sorting, and timer start.
+
+### Parser (`src/internal/parser/parser.go`)
 
 Lenient, field-by-field extraction pipeline. Each field has its own pattern array:
 
-- `DATE_PATTERNS` — standalone date lines (`M/D/YYYY`, `YYYY-MM-DD`)
-- `TYPE_PATTERNS` — task type at start of line (`Bug`, `Task`)
-- `NUMBER_PATTERNS` — task number (`123`, `#123`, `123:`)
-- `TIME_PATTERNS` — time at end of line (`1h`, `30m`, `1h 30m`)
+- `DatePatterns` — standalone date lines (`M/D/YYYY`, `YYYY-MM-DD`)
+- `TypePatterns` — task type at start of line (`Bug`, `Task`)
+- `NumberPatterns` — task number (`123`, `#123`, `123:`)
+- `TimePatterns` — time at end of line (`1h`, `30m`, `1h 30m`)
+- `PrefixPattern` — strips "Pull Request XXXXX:" into comments
 
-Pipeline: type → number → time → name (whatever remains). Unknown fields are reported in a `missing` array so the UI can prompt the user.
+Pipeline: type → number → time → name (whatever remains). Unknown fields are reported in a `Missing` slice so the UI can prompt the user.
 
-To add new patterns, append to the relevant array in `parser.js` and add tests in `tests/patterns.test.js`.
+### Store (`src/internal/store/store.go`)
 
-### Paste Mode (`PasteTasks.jsx`)
+CSV read/write with `TaskRepository` interface (combines `TaskReader` + `TaskWriter`). Functions: `LoadTasks`, `AddTask`, `AddTasks`, `UpdateTask`, `DeleteTask`.
 
-Three phases: `input` → `fill` → `preview`. After parsing, if any required fields are missing (type, number, name — not timeSpent which is optional), the user is prompted to fill them before saving.
+### Timer (`src/internal/timer/timer.go`)
 
-### CLI Router (`cli.js`)
+Persists running timer to `.timer.json`. Types: `Timer`, `TimerData`, `TimerStatus`. Methods: `Start`, `Stop`, `Status`, `FormatElapsed`.
 
-Entry point for both TUI and CLI. No args → launches TUI via `import('./index.js')`. Subcommands (`add`, `paste`, `today`, `week`, `start`, `stop`, `status`) use plain console.log + process.exit, no Ink needed.
+### Format (`src/internal/format/format.go`)
 
-### Timer (`timer.js`)
+Fixed column widths and `Pad` helper for table rendering. Shared between CLI and TUI table.
 
-Persists running timer to `.timer.json` in cwd. Functions: `startTimer`, `stopTimer`, `getTimerStatus`, `formatElapsed`.
+### TimeUtil (`src/internal/timeutil/timeutil.go`)
 
-### Format (`format.js`)
+Time parsing and date utilities: `ParseTime`, `ParseDate`, `GetWeekBounds`, `FormatDateShort`, `GroupByDate`, etc.
 
-Plain-text table formatter shared between CLI output and `TaskTable.jsx`. Exports `pad`, `FIXED`, `MIN_NAME`, `MIN_COMMENTS`, `formatTable`.
+### Prefs (`src/internal/prefs/prefs.go`)
 
-### Store (`store.js`)
+Persists user preferences (sort column, sort direction) to `.prefs.json`.
 
-Synchronous CSV read/write using `papaparse`. Values are trimmed on load. All functions: `loadTasks`, `saveTasks`, `addTask`, `addTasks`, `updateTask`, `deleteTask`.
+### Update (`src/internal/update/update.go`)
+
+Async git fetch on startup to check if local branch is behind remote. Non-blocking.
+
+### Input Bar (`src/tui/inputbar/inputbar.go`)
+
+Reusable bottom input bar component with placeholder text and keybinding hints.
+
+### Table (`src/tui/table/table.go`)
+
+Reusable styled task table with sorting indicators, row selection, and color-coded task types.
 
 ## Testing
 
-Tests use Node.js built-in `node:test` + `node:assert/strict`, run via `tsx`.
+Tests use Go's built-in `testing` package, run via `go test ./...`.
 
-- `patterns.test.js` — tests each pattern array in isolation (DATE, TYPE, NUMBER, TIME)
-- `parser.test.js` — tests `parsePastedText` end-to-end (full format, partial format, mixed blocks, date handling)
-- `store.test.js` — tests CSV CRUD in a temp directory
-- `utils.test.js` — tests parseTime, parseDate, getWeekBounds, formatDateShort, groupByDate
-- `format.test.js` — tests formatTable output, truncation, width
-- `timer.test.js` — tests startTimer, stopTimer, getTimerStatus, formatElapsed
-- `cli.test.js` — integration tests for CLI subcommands (add, today, week, timer lifecycle)
+- `store_test.go` — CSV CRUD tests in a temp directory
+- `parser_test.go` — pattern matching and `ParsePastedText` tests
+- `timeutil_test.go` — ParseTime, ParseDate, GetWeekBounds, etc.
+- `format_test.go` — Pad, column width tests
+- `timer_test.go` — timer start/stop/status tests
+- `prefs_test.go` — preferences persistence tests
+- `inputbar_test.go` — input bar component tests
+- `table_test.go` — table rendering tests
+- `add_test.go` — add task flow tests
+- `filter_test.go` — filter functionality tests
 
 ## Rules
 
-- All new code must be covered with tests. Run `npm test` before committing/pushing.
+- All new code must be covered with tests. Run `go test ./...` before committing/pushing.
 
 ## Key Design Decisions
 
@@ -127,3 +149,5 @@ Tests use Node.js built-in `node:test` + `node:assert/strict`, run via `tsx`.
 - `timeSpent` is always optional (not prompted during fill phase)
 - Date defaults to today if no date line is provided
 - Each pattern group is a separate exported array for easy expansion
+- `ScreenFactory` pattern avoids import cycles between `cmd` and `tui` packages
+- Single summary screen handles all modes (view, add, edit, delete, filter, timer) via phase state machine
