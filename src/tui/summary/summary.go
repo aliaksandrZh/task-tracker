@@ -32,6 +32,7 @@ const (
 	phaseFilter
 	phaseAdding
 	phaseAddFill
+	phaseTimerStart
 )
 
 // Model is the summary screen.
@@ -187,6 +188,8 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch m.phase {
+		case phaseTimerStart:
+			return m.updateTimerStart(msg)
 		case phaseAdding:
 			return m.updateAdding(msg)
 		case phaseAddFill:
@@ -212,7 +215,7 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 	}
 
 	// Forward non-key messages (blink cursor, etc.) to textinput when editing/filtering/adding
-	if m.phase == phaseAdding || m.phase == phaseAddFill {
+	if m.phase == phaseAdding || m.phase == phaseAddFill || m.phase == phaseTimerStart {
 		var cmd tea.Cmd
 		m.inputBar, cmd = m.inputBar.Update(msg)
 		return m, cmd
@@ -260,7 +263,13 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 		if m.tmr.GetStatus() != nil {
 			return m, stopTimer()
 		}
-		return m, navigate(appTui.ScreenTimerStart)
+		m.phase = phaseTimerStart
+		m.inputBar.SetWidth(m.width)
+		m.inputBar.Activate(inputbar.Config{
+			Placeholder: "Bug 123: Fix login",
+			Hints:       "Enter=start timer  Escape=cancel",
+		})
+		return m, textinput.Blink
 	case "e":
 		if len(m.displayed) > 0 {
 			m.phase = phaseSelect
@@ -483,6 +492,40 @@ func (m *Model) updateFilter(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	return m, cmd
 }
 
+func (m *Model) updateTimerStart(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.inputBar.Deactivate()
+		m.phase = phaseView
+		return m, nil
+	case tea.KeyEnter:
+		val := strings.TrimSpace(m.inputBar.Value())
+		if val == "" {
+			return m, nil
+		}
+		typ, number, name, _, _ := parser.ParseLine(val)
+		if typ == "" && number == "" && name == "" {
+			m.inputBar.Deactivate()
+			m.phase = phaseView
+			return m, flash("Could not parse. Use: Bug 123: Fix login")
+		}
+		_, err := m.tmr.Start(typ, number, name)
+		if err != nil {
+			m.inputBar.Deactivate()
+			m.phase = phaseView
+			return m, flash(err.Error())
+		}
+		m.inputBar.Deactivate()
+		m.phase = phaseView
+		label := fmt.Sprintf("%s %s: %s", typ, number, name)
+		return m, flash(fmt.Sprintf("Timer started: %s", strings.TrimSpace(label)))
+	}
+
+	var cmd tea.Cmd
+	m.inputBar, cmd = m.inputBar.Update(msg)
+	return m, cmd
+}
+
 var addFieldLabels = map[string]string{
 	"type":   "Type (Bug/Task)",
 	"number": "Number",
@@ -655,6 +698,8 @@ func (m *Model) View() string {
 		stateLabel = " (EDIT)"
 	} else if m.phase == phaseAdding || m.phase == phaseAddFill {
 		stateLabel = " [ADDING]"
+	} else if m.phase == phaseTimerStart {
+		stateLabel = " [TIMER]"
 	} else if m.phase == phaseFilter {
 		stateLabel = " [FILTER]"
 	} else if m.filterText != "" {
