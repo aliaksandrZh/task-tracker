@@ -10,11 +10,13 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/aliaksandrZh/worklog/src/internal/model"
+	"github.com/aliaksandrZh/worklog/src/internal/parser"
 	"github.com/aliaksandrZh/worklog/src/internal/prefs"
 	"github.com/aliaksandrZh/worklog/src/internal/store"
 	"github.com/aliaksandrZh/worklog/src/internal/timeutil"
 	"github.com/aliaksandrZh/worklog/src/internal/timer"
 	appTui "github.com/aliaksandrZh/worklog/src/tui"
+	"github.com/aliaksandrZh/worklog/src/tui/inputbar"
 	"github.com/aliaksandrZh/worklog/src/tui/table"
 )
 
@@ -28,6 +30,8 @@ const (
 	phaseEditing
 	phaseConfirmDelete
 	phaseFilter
+	phaseAdding
+	phaseAddFill
 )
 
 // Model is the summary screen.
@@ -48,6 +52,11 @@ type Model struct {
 
 	filterInput textinput.Model
 	filterText  string // active filter (applied when non-empty)
+
+	inputBar     inputbar.Model
+	addParsed    []model.ParsedTask
+	addTaskIdx   int
+	addFieldIdx  int
 
 	repo  store.TaskRepository
 	tmr   *timer.Timer
@@ -88,6 +97,7 @@ func New(repo store.TaskRepository, tmr *timer.Timer) *Model {
 		sortDir:     pref.SortDir,
 		editInput:   ti,
 		filterInput: fi,
+		inputBar:    inputbar.New(),
 		repo:        repo,
 		tmr:         tmr,
 		prefs:       p,
@@ -177,6 +187,10 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch m.phase {
+		case phaseAdding:
+			return m.updateAdding(msg)
+		case phaseAddFill:
+			return m.updateAddFill(msg)
 		case phaseFilter:
 			return m.updateFilter(msg)
 		case phaseEditing:
@@ -197,7 +211,12 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 		}
 	}
 
-	// Forward non-key messages (blink cursor, etc.) to textinput when editing/filtering
+	// Forward non-key messages (blink cursor, etc.) to textinput when editing/filtering/adding
+	if m.phase == phaseAdding || m.phase == phaseAddFill {
+		var cmd tea.Cmd
+		m.inputBar, cmd = m.inputBar.Update(msg)
+		return m, cmd
+	}
 	if m.phase == phaseEditing {
 		var cmd tea.Cmd
 		m.editInput, cmd = m.editInput.Update(msg)
@@ -225,7 +244,13 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	case "q", "ctrl+c":
 		return m, tea.Quit
 	case "a":
-		return m, navigate(appTui.ScreenPaste)
+		m.phase = phaseAdding
+		m.inputBar.SetWidth(m.width)
+		m.inputBar.Activate(inputbar.Config{
+			Placeholder: "Bug 123: Fix login 1h",
+			Hints:       "Enter=submit  Escape=cancel",
+		})
+		return m, textinput.Blink
 	case "t":
 		if m.tmr.GetStatus() != nil {
 			return m, stopTimer()
@@ -435,6 +460,131 @@ func (m *Model) updateFilter(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	return m, cmd
 }
 
+var addFieldLabels = map[string]string{
+	"type":   "Type (Bug/Task)",
+	"number": "Number",
+	"name":   "Name",
+}
+
+func (m *Model) updateAdding(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.inputBar.Deactivate()
+		m.phase = phaseView
+		return m, nil
+	case tea.KeyEnter:
+		text := m.inputBar.Value()
+		if text == "" {
+			return m, nil
+		}
+		tasks := parser.ParsePastedText(text)
+		if len(tasks) == 0 {
+			m.inputBar.Deactivate()
+			m.phase = phaseView
+			return m, flash("No tasks parsed. Check format.")
+		}
+		m.addParsed = tasks
+		m.inputBar.Deactivate()
+		return m.startAddFillOrSave()
+	}
+
+	var cmd tea.Cmd
+	m.inputBar, cmd = m.inputBar.Update(msg)
+	return m, cmd
+}
+
+func (m *Model) updateAddFill(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
+	switch msg.Type {
+	case tea.KeyEscape:
+		m.inputBar.Deactivate()
+		m.phase = phaseView
+		return m, nil
+	case tea.KeyEnter:
+		val := m.inputBar.Value()
+		if val == "" {
+			return m, nil
+		}
+		task := &m.addParsed[m.addTaskIdx]
+		required := requiredAddMissing(task.Missing)
+		fieldName := required[m.addFieldIdx]
+
+		switch fieldName {
+		case "type":
+			task.Type = val
+		case "number":
+			task.Number = val
+		case "name":
+			task.Name = val
+		}
+
+		// Remove from missing
+		var newMissing []string
+		for _, f := range task.Missing {
+			if f != fieldName {
+				newMissing = append(newMissing, f)
+			}
+		}
+		task.Missing = newMissing
+		m.inputBar.Deactivate()
+		return m.startAddFillOrSave()
+	}
+
+	var cmd tea.Cmd
+	m.inputBar, cmd = m.inputBar.Update(msg)
+	return m, cmd
+}
+
+// startAddFillOrSave checks for remaining missing fields; fills next or saves all.
+func (m *Model) startAddFillOrSave() (appTui.ScreenModel, tea.Cmd) {
+	for t := m.addTaskIdx; t < len(m.addParsed); t++ {
+		required := requiredAddMissing(m.addParsed[t].Missing)
+		startF := 0
+		if t == m.addTaskIdx {
+			startF = m.addFieldIdx
+		}
+		if startF < len(required) {
+			m.addTaskIdx = t
+			m.addFieldIdx = startF
+			fieldName := required[startF]
+			label := addFieldLabels[fieldName]
+			if label == "" {
+				label = fieldName
+			}
+			m.phase = phaseAddFill
+			m.inputBar.SetWidth(m.width)
+			m.inputBar.Activate(inputbar.Config{
+				Placeholder: label,
+				Hints:       fmt.Sprintf("Fill %s  Enter=submit  Escape=cancel", label),
+			})
+			return m, textinput.Blink
+		}
+	}
+
+	// All fields filled — save
+	tasks := make([]model.Task, len(m.addParsed))
+	for i, p := range m.addParsed {
+		tasks[i] = p.Task
+	}
+	_ = m.repo.AddTasks(tasks)
+	m.addParsed = nil
+	m.addTaskIdx = 0
+	m.addFieldIdx = 0
+	m.phase = phaseView
+	m.reload()
+	return m, flash(fmt.Sprintf("%d task(s) saved!", len(tasks)))
+}
+
+// requiredAddMissing returns missing fields excluding optional ones (timeSpent, date).
+func requiredAddMissing(missing []string) []string {
+	var result []string
+	for _, f := range missing {
+		if f != "timeSpent" && f != "date" {
+			result = append(result, f)
+		}
+	}
+	return result
+}
+
 func (m *Model) updateConfirmDelete(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
@@ -476,10 +626,12 @@ func (m *Model) View() string {
 	var body strings.Builder
 	selectedLineY := -1 // track Y position of the selected row in body
 
-	isEdit := m.phase != phaseView && m.phase != phaseFilter
-	editLabel := ""
+	isEdit := m.phase == phaseSelect || m.phase == phaseEditing || m.phase == phaseConfirmDelete
+	stateLabel := ""
 	if isEdit {
-		editLabel = " (EDIT)"
+		stateLabel = " (EDIT)"
+	} else if m.phase == phaseAdding || m.phase == phaseAddFill {
+		stateLabel = " [ADDING]"
 	}
 
 	sortHint := "off"
@@ -504,7 +656,7 @@ func (m *Model) View() string {
 
 	if m.mode == "monthly" {
 		result := timeutil.FilterMonthByOffset(m.indexedAll, m.monthOffset)
-		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Monthly Summary%s", editLabel)) + "\n")
+		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Monthly Summary%s", stateLabel)) + "\n")
 		header.WriteString(appTui.PromptStyle.Render(
 			fmt.Sprintf("%s — %.1fh total (%d tasks)", result.Label, result.Total, len(result.Tasks))) + "\n")
 
@@ -544,7 +696,7 @@ func (m *Model) View() string {
 		}
 	} else if m.mode == "weekly" {
 		result := timeutil.FilterWeekByOffset(m.indexedAll, m.weekOffset)
-		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Weekly Summary%s", editLabel)) + "\n")
+		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Weekly Summary%s", stateLabel)) + "\n")
 		header.WriteString(appTui.PromptStyle.Render(
 			fmt.Sprintf("%s — %.1fh total (%d tasks)", result.Label, result.Total, len(result.Tasks))) + "\n")
 
@@ -587,7 +739,7 @@ func (m *Model) View() string {
 		if m.dailyIdx < len(m.dailyGroups) {
 			dateLabel = " — " + m.dailyGroups[m.dailyIdx].Key
 		}
-		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Daily Summary%s%s", editLabel, dateLabel)) + "\n")
+		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Daily Summary%s%s", stateLabel, dateLabel)) + "\n")
 		if m.dailyIdx < len(m.dailyGroups) {
 			g := m.dailyGroups[m.dailyIdx]
 			header.WriteString(appTui.PromptStyle.Render(
@@ -659,6 +811,9 @@ func (m *Model) View() string {
 	headerStr := header.String()
 	headerLines := strings.Count(headerStr, "\n") + 1
 	footerReserve := 4 // scroll hint + hint line + possible notification + margin
+	if m.inputBar.Active() {
+		footerReserve += m.inputBar.Height()
+	}
 	vpHeight := m.height - headerLines - footerReserve
 	if vpHeight < 5 {
 		vpHeight = 5
@@ -702,7 +857,12 @@ func (m *Model) View() string {
 		out += "\n" + scrollHint
 	}
 
-	out += "\n" + appTui.HintStyle.Render(hintLine)
+	// Show input bar with its own hints, or the base shortcut line — not both
+	if m.inputBar.Active() {
+		out += "\n" + m.inputBar.View()
+	} else {
+		out += "\n" + appTui.HintStyle.Render(hintLine)
+	}
 
 	// Notification zone: only render lines that have content
 	if m.notifications.TimerLine != "" {

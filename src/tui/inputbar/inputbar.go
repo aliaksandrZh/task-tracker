@@ -3,9 +3,15 @@ package inputbar
 import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	appTui "github.com/aliaksandrZh/worklog/src/tui"
 )
+
+var borderStyle = lipgloss.NewStyle().
+	Border(lipgloss.RoundedBorder()).
+	BorderForeground(lipgloss.Color("6")).
+	Padding(0, 1)
 
 // Config holds the display settings for an active input bar.
 type Config struct {
@@ -74,7 +80,7 @@ func (m *Model) SetValue(s string) {
 // SetWidth updates the rendering width.
 func (m *Model) SetWidth(w int) {
 	m.width = w
-	m.input.Width = w - 4 // account for prompt and padding
+	m.input.Width = w - 8 // account for prompt, border, and padding
 }
 
 // Update forwards messages to the underlying textinput.
@@ -87,18 +93,21 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	return m, cmd
 }
 
-// View renders the input bar: hints line + input line.
+// View renders the input bar: bordered input, then hints below.
 // Returns empty string when inactive.
 func (m Model) View() string {
 	if !m.active {
 		return ""
 	}
 
-	var out string
-	if m.config.Hints != "" {
-		out += appTui.HintStyle.Render(m.config.Hints) + "\n"
+	boxWidth := m.width - 2 // leave margin for border
+	if boxWidth < 20 {
+		boxWidth = 20
 	}
-	out += m.input.View()
+	out := borderStyle.Width(boxWidth).Render(m.input.View())
+	if m.config.Hints != "" {
+		out += "\n" + appTui.HintStyle.Render(m.config.Hints)
+	}
 	return out
 }
 
@@ -107,8 +116,10 @@ func (m Model) Height() int {
 	if !m.active {
 		return 0
 	}
+	// border adds 2 lines (top + bottom), plus optional hints
+	h := 3 // top border + input + bottom border
 	if m.config.Hints != "" {
-		return 2 // hints + input
+		h++ // hints line
 	}
-	return 1 // input only
+	return h
 }

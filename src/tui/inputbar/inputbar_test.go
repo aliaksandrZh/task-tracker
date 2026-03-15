@@ -39,8 +39,8 @@ func TestActivate(t *testing.T) {
 	if !strings.Contains(view, "Enter=submit") {
 		t.Fatalf("view should contain hints, got %q", view)
 	}
-	if m.Height() != 2 {
-		t.Fatalf("expected height 2 (hints + input), got %d", m.Height())
+	if m.Height() != 4 {
+		t.Fatalf("expected height 4 (border + input + border + hints), got %d", m.Height())
 	}
 }
 
@@ -89,8 +89,8 @@ func TestHeight_noHints(t *testing.T) {
 	m := New()
 	m.Activate(Config{Placeholder: "test"})
 
-	if m.Height() != 1 {
-		t.Fatalf("expected height 1 (no hints), got %d", m.Height())
+	if m.Height() != 3 {
+		t.Fatalf("expected height 3 (border + input + border), got %d", m.Height())
 	}
 }
 
