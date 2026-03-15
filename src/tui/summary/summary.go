@@ -229,7 +229,7 @@ func (m *Model) Update(msg tea.Msg) (appTui.ScreenModel, tea.Cmd) {
 	}
 	if m.phase == phaseFilter {
 		var cmd tea.Cmd
-		m.filterInput, cmd = m.filterInput.Update(msg)
+		m.inputBar, cmd = m.inputBar.Update(msg)
 		return m, cmd
 	}
 
@@ -318,10 +318,12 @@ func (m *Model) updateView(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 			m.refreshDisplayed()
 		}
 	case "f":
-		m.filterInput.SetValue(m.filterText)
-		m.filterInput.SetCursor(len(m.filterText))
-		m.filterInput.Focus()
 		m.phase = phaseFilter
+		m.inputBar.SetWidth(m.width)
+		m.inputBar.ActivateWithValue(inputbar.Config{
+			Placeholder: "type to filter...",
+			Hints:       "Enter=keep filter  Esc=clear, Esc again=close",
+		}, m.filterText)
 		return m, textinput.Blink
 	case "s":
 		idx := indexOf(sortColumns, m.sortBy)
@@ -455,26 +457,28 @@ func (m *Model) updateEditing(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 func (m *Model) updateFilter(msg tea.KeyMsg) (appTui.ScreenModel, tea.Cmd) {
 	switch msg.Type {
 	case tea.KeyEscape:
-		if m.filterInput.Value() != "" {
+		if m.inputBar.Value() != "" {
 			// First Esc: clear the filter text
-			m.filterInput.SetValue("")
+			m.inputBar.SetValue("")
 			m.filterText = ""
 			m.refreshDisplayed()
 			return m, nil
 		}
 		// Second Esc (already empty): close filter mode
+		m.inputBar.Deactivate()
 		m.phase = phaseView
 		return m, nil
 	case tea.KeyEnter:
-		m.filterText = m.filterInput.Value()
+		m.filterText = m.inputBar.Value()
+		m.inputBar.Deactivate()
 		m.phase = phaseView
 		return m, nil
 	}
 
 	var cmd tea.Cmd
-	m.filterInput, cmd = m.filterInput.Update(msg)
+	m.inputBar, cmd = m.inputBar.Update(msg)
 	// Live filter as user types
-	m.filterText = m.filterInput.Value()
+	m.filterText = m.inputBar.Value()
 	m.refreshDisplayed()
 	return m, cmd
 }
@@ -651,6 +655,10 @@ func (m *Model) View() string {
 		stateLabel = " (EDIT)"
 	} else if m.phase == phaseAdding || m.phase == phaseAddFill {
 		stateLabel = " [ADDING]"
+	} else if m.phase == phaseFilter {
+		stateLabel = " [FILTER]"
+	} else if m.filterText != "" {
+		stateLabel = fmt.Sprintf(" [filter: %s]", m.filterText)
 	}
 
 	sortHint := "off"
@@ -791,12 +799,7 @@ func (m *Model) View() string {
 
 	bodyStr := body.String()
 
-	// Calculate viewport height: terminal height - header lines - footer reserve (3 lines in app.go)
-	if m.phase == phaseFilter {
-		header.WriteString(appTui.PromptStyle.Render("Filter: ") + m.filterInput.View() + "\n")
-	} else if m.filterText != "" {
-		header.WriteString(appTui.HintStyle.Render(fmt.Sprintf("filter: %q  [f] to edit", m.filterText)) + "\n")
-	}
+	// Calculate viewport height
 	headerStr := header.String()
 	headerLines := strings.Count(headerStr, "\n") + 1
 	footerReserve := 4 // scroll hint + hint line + possible notification + margin
