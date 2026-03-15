@@ -498,7 +498,6 @@ func (m *Model) View() string {
 	if m.mode == "monthly" {
 		result := timeutil.FilterMonthByOffset(m.indexedAll, m.monthOffset)
 		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Monthly Summary%s", editLabel)) + "\n")
-		header.WriteString(appTui.HintStyle.Render(hintLine) + "\n")
 		header.WriteString(appTui.PromptStyle.Render(
 			fmt.Sprintf("%s — %.1fh total (%d tasks)", result.Label, result.Total, len(result.Tasks))) + "\n")
 
@@ -539,7 +538,6 @@ func (m *Model) View() string {
 	} else if m.mode == "weekly" {
 		result := timeutil.FilterWeekByOffset(m.indexedAll, m.weekOffset)
 		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Weekly Summary%s", editLabel)) + "\n")
-		header.WriteString(appTui.HintStyle.Render(hintLine) + "\n")
 		header.WriteString(appTui.PromptStyle.Render(
 			fmt.Sprintf("%s — %.1fh total (%d tasks)", result.Label, result.Total, len(result.Tasks))) + "\n")
 
@@ -583,7 +581,6 @@ func (m *Model) View() string {
 			dateLabel = " — " + m.dailyGroups[m.dailyIdx].Key
 		}
 		header.WriteString(appTui.TitleStyle.Render(fmt.Sprintf("Daily Summary%s%s", editLabel, dateLabel)) + "\n")
-		header.WriteString(appTui.HintStyle.Render(hintLine) + "\n")
 		if m.dailyIdx < len(m.dailyGroups) {
 			g := m.dailyGroups[m.dailyIdx]
 			header.WriteString(appTui.PromptStyle.Render(
@@ -654,7 +651,7 @@ func (m *Model) View() string {
 	}
 	headerStr := header.String()
 	headerLines := strings.Count(headerStr, "\n") + 1
-	footerReserve := 5 // timer + flash + update + blank line in app.go + scroll hint
+	footerReserve := 6 // hint line + timer + flash + update + blank line in app.go + scroll hint
 	vpHeight := m.height - headerLines - footerReserve
 	if vpHeight < 5 {
 		vpHeight = 5
@@ -697,6 +694,7 @@ func (m *Model) View() string {
 	if scrollHint != "" {
 		out += "\n" + scrollHint
 	}
+	out += "\n" + appTui.HintStyle.Render(hintLine)
 	return out
 }
 
