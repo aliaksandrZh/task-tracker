@@ -853,11 +853,46 @@ func (m *Model) View() string {
 
 	bodyStr := body.String()
 
+	// Build footer lines (bottom-anchored)
+	var footer []string
+
+	// Notification zone
+	if m.notifications.TimerLine != "" {
+		footer = append(footer, m.notifications.TimerLine)
+	}
+	if m.notifications.FlashLine != "" {
+		footer = append(footer, m.notifications.FlashLine)
+	}
+	if m.notifications.UpdateLine != "" {
+		footer = append(footer, m.notifications.UpdateLine)
+	}
+
+	// Input bar (4 lines) or hint line (1 line)
+	var hintBlock string
+	if m.inputBar.Active() {
+		hintBlock = m.inputBar.View()
+	} else {
+		hintBlock = appTui.HintStyle.Render(hintLine)
+	}
+	// Prepend hint block before notifications
+	footer = append([]string{hintBlock}, footer...)
+
+	// Footer height: always reserve at least 4 lines (input bar height) + notification lines
+	notifCount := 0
+	if m.notifications.TimerLine != "" {
+		notifCount++
+	}
+	if m.notifications.FlashLine != "" {
+		notifCount++
+	}
+	if m.notifications.UpdateLine != "" {
+		notifCount++
+	}
+	footerReserve := 1 + 4 + notifCount // scroll hint + input bar max + notifications
+
 	// Calculate viewport height
 	headerStr := header.String()
 	headerLines := strings.Count(headerStr, "\n") + 1
-	// Reserve space for: scroll hint (1) + input bar (4) to prevent shift
-	footerReserve := 5
 	vpHeight := m.height - headerLines - footerReserve
 	if vpHeight < 5 {
 		vpHeight = 5
@@ -869,7 +904,6 @@ func (m *Model) View() string {
 
 	// Auto-scroll to keep selected row visible in edit mode
 	if isEdit && m.selectedRow >= 0 {
-		// Estimate the line position of the selected row in the body content
 		if selectedLineY >= 0 && selectedLineY >= m.vp.YOffset+vpHeight {
 			m.vp.SetYOffset(selectedLineY - vpHeight + 2)
 		} else if selectedLineY >= 0 && selectedLineY < m.vp.YOffset {
@@ -901,25 +935,21 @@ func (m *Model) View() string {
 		out += "\n" + scrollHint
 	}
 
-	// Show input bar with its own hints, or the base shortcut line — not both.
-	// Always occupy the same number of lines (4) to prevent layout shift.
-	if m.inputBar.Active() {
-		out += "\n" + m.inputBar.View()
-	} else {
-		out += "\n" + appTui.HintStyle.Render(hintLine)
-		out += "\n\n\n" // pad to match input bar height
+	// Pad between viewport and footer to push footer to the bottom
+	actualFooterHeight := len(footer)
+	for _, f := range footer {
+		actualFooterHeight += strings.Count(f, "\n")
+	}
+	usedLines := headerLines + vpHeight
+	if scrollHint != "" {
+		usedLines++
+	}
+	padLines := m.height - usedLines - actualFooterHeight
+	if padLines > 0 {
+		out += strings.Repeat("\n", padLines)
 	}
 
-	// Notification zone: only render lines that have content
-	if m.notifications.TimerLine != "" {
-		out += "\n" + m.notifications.TimerLine
-	}
-	if m.notifications.FlashLine != "" {
-		out += "\n" + m.notifications.FlashLine
-	}
-	if m.notifications.UpdateLine != "" {
-		out += "\n" + m.notifications.UpdateLine
-	}
+	out += "\n" + strings.Join(footer, "\n")
 	return out
 }
 
