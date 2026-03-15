@@ -158,29 +158,30 @@ func (a *App) setCurrentModel(m ScreenModel) {
 }
 
 func (a App) View() string {
-	var b strings.Builder
-
-	// Active screen or home
 	target := a.currentModel()
-	if target != nil {
-		b.WriteString(target.View())
+
+	// Pass notification data to screens that support it
+	if nr, ok := target.(NotificationReceiver); ok {
+		nr.SetNotifications(a.buildNotifications())
 	}
 
-	// Footer: fixed 3-line area (timer, flash, update) — always rendered to prevent shifting
-	b.WriteString("\n")
+	if target != nil {
+		return target.View()
+	}
+	return ""
+}
+
+func (a App) buildNotifications() Notifications {
+	var n Notifications
 
 	if a.timerInfo != nil {
 		elapsed := timer.FormatElapsed(time.Now().UnixMilli() - a.timerInfo.StartedAt)
-		b.WriteString(TimerStyle.Render(
-			fmt.Sprintf("⏱ %s %s: %s — %s", a.timerInfo.Type, a.timerInfo.Number, a.timerInfo.Name, elapsed)) + "\n")
-	} else {
-		b.WriteString("\n")
+		n.TimerLine = TimerStyle.Render(
+			fmt.Sprintf("⏱ %s %s: %s — %s", a.timerInfo.Type, a.timerInfo.Number, a.timerInfo.Name, elapsed))
 	}
 
 	if a.flash != "" {
-		b.WriteString(FlashStyle.Render(a.flash) + "\n")
-	} else {
-		b.WriteString("\n")
+		n.FlashLine = FlashStyle.Render(a.flash)
 	}
 
 	if a.updateCount > 0 {
@@ -188,13 +189,11 @@ func (a App) View() string {
 		if a.updateCount > 1 {
 			plural = "s"
 		}
-		b.WriteString(UpdateStyle.Render(
-			fmt.Sprintf("Update available (%d commit%s behind). u=copy update command", a.updateCount, plural)) + "\n")
-	} else {
-		b.WriteString("\n")
+		n.UpdateLine = UpdateStyle.Render(
+			fmt.Sprintf("Update available (%d commit%s behind). u=copy update command", a.updateCount, plural))
 	}
 
-	return b.String()
+	return n
 }
 
 func (a App) navigate(screen Screen) (tea.Model, tea.Cmd) {

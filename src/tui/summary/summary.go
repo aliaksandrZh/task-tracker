@@ -60,6 +60,8 @@ type Model struct {
 	weeklyGroups  []timeutil.DateGroup // day groups within current week
 	monthlyGroups []timeutil.DateGroup // day groups within current month
 
+	notifications appTui.Notifications
+
 	width  int
 	height int
 	vp     viewport.Model
@@ -152,6 +154,11 @@ func (m *Model) refreshDisplayed() {
 		}
 		m.displayed = timeutil.SortTasks(filterTasks(raw, m.filterText), m.sortBy, m.sortDir)
 	}
+}
+
+// SetNotifications updates the notification zone data.
+func (m *Model) SetNotifications(n appTui.Notifications) {
+	m.notifications = n
 }
 
 // Reload refreshes data from the store (called when returning from sub-screens).
@@ -651,7 +658,7 @@ func (m *Model) View() string {
 	}
 	headerStr := header.String()
 	headerLines := strings.Count(headerStr, "\n") + 1
-	footerReserve := 6 // hint line + timer + flash + update + blank line in app.go + scroll hint
+	footerReserve := 4 // scroll hint + hint line + possible notification + margin
 	vpHeight := m.height - headerLines - footerReserve
 	if vpHeight < 5 {
 		vpHeight = 5
@@ -694,7 +701,19 @@ func (m *Model) View() string {
 	if scrollHint != "" {
 		out += "\n" + scrollHint
 	}
+
 	out += "\n" + appTui.HintStyle.Render(hintLine)
+
+	// Notification zone: only render lines that have content
+	if m.notifications.TimerLine != "" {
+		out += "\n" + m.notifications.TimerLine
+	}
+	if m.notifications.FlashLine != "" {
+		out += "\n" + m.notifications.FlashLine
+	}
+	if m.notifications.UpdateLine != "" {
+		out += "\n" + m.notifications.UpdateLine
+	}
 	return out
 }
 
